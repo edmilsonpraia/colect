@@ -61,16 +61,44 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.setItem('cc-install-dismissed', '1');
     });
 
-    // iOS: show manual install instructions
+    // iOS: show visual install guide
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    const iosOverlay = document.getElementById('ios-install-overlay');
+    const iosClose = document.getElementById('ios-install-close');
+
+    function showIOSGuide() {
+        if (iosOverlay) iosOverlay.classList.remove('hidden');
+    }
+
+    if (iosClose) iosClose.addEventListener('click', () => {
+        if (iosOverlay) iosOverlay.classList.add('hidden');
+    });
+    if (iosOverlay) iosOverlay.addEventListener('click', (e) => {
+        if (e.target === iosOverlay) iosOverlay.classList.add('hidden');
+    });
 
     if (isIOS && !isStandalone) {
+        // Show install button for iOS
         if (btnInstall) {
             btnInstall.classList.remove('hidden');
-            btnInstall.addEventListener('click', () => {
-                alert('Para instalar no iPhone/iPad:\n\n1. Toque no botao de Compartilhar (icone de quadrado com seta)\n2. Role e toque em "Adicionar a Tela Inicio"\n3. Toque em "Adicionar"\n\nO app aparecera como icone na sua tela inicial!');
-            });
+            btnInstall.addEventListener('click', showIOSGuide);
+        }
+
+        // Show iOS banner after 3s (once per session)
+        if (!sessionStorage.getItem('cc-install-dismissed')) {
+            setTimeout(() => {
+                if (banner && !deferredInstallPrompt) {
+                    // Reuse install banner but change button to show iOS guide
+                    banner.classList.remove('hidden');
+                    if (bannerBtn) {
+                        bannerBtn.onclick = () => {
+                            banner.classList.add('hidden');
+                            showIOSGuide();
+                        };
+                    }
+                }
+            }, 3000);
         }
     }
 });

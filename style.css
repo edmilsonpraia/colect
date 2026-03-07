@@ -352,6 +352,28 @@ button .codicon { font-size: 14px; }
 .install-banner-actions { display: flex; gap: 8px; }
 .install-banner-actions .modal-btn { flex: 1; padding: 10px 0; font-size: 13px; }
 
+/* iOS install guide */
+.ios-install-modal { max-width: 380px; }
+.ios-steps { padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+.ios-step {
+    display: flex; align-items: flex-start; gap: 12px;
+}
+.ios-step-num {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.ios-step-content { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+.ios-step-title { color: var(--text2); font-size: 13px; }
+.ios-step-desc { color: var(--text-dim); font-size: 11px; }
+.ios-share-icon { font-size: 16px; vertical-align: middle; }
+.ios-result {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+    background: var(--bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--green);
+}
+.ios-result-icon { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; }
+
 /* Desktop hover refinements */
 @media (hover: hover) {
     .point-item .btn-remove, .point-item .btn-focus, .point-label-edit {

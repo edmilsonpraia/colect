@@ -193,7 +193,7 @@
             <div id="elev-empty" class="elev-empty">Adicione pontos para ver o perfil de elevacao</div>
         </div>
 
-        <!-- Install banner (mobile) -->
+        <!-- Install banner (Android) -->
         <div id="install-banner" class="install-banner hidden">
             <div class="install-banner-content">
                 <img src="ICONE CGC.jpg" alt="Copia Colect" class="install-banner-icon" />
@@ -205,6 +205,43 @@
             <div class="install-banner-actions">
                 <button id="install-banner-close" class="modal-btn cancel">Agora nao</button>
                 <button id="install-banner-btn" class="modal-btn confirm"><i class="codicon codicon-desktop-download"></i> Instalar</button>
+            </div>
+        </div>
+
+        <!-- iOS install guide modal -->
+        <div id="ios-install-overlay" class="modal-overlay hidden">
+            <div class="modal ios-install-modal">
+                <div class="modal-header"><i class="codicon codicon-desktop-download"></i> Instalar no iPhone/iPad</div>
+                <div class="ios-steps">
+                    <div class="ios-step">
+                        <div class="ios-step-num">1</div>
+                        <div class="ios-step-content">
+                            <span class="ios-step-title">Toque no botao <b>Compartilhar</b></span>
+                            <span class="ios-step-desc">O icone de quadrado com seta para cima (<span class="ios-share-icon">&#x1F4E4;</span>) na barra do Safari</span>
+                        </div>
+                    </div>
+                    <div class="ios-step">
+                        <div class="ios-step-num">2</div>
+                        <div class="ios-step-content">
+                            <span class="ios-step-title">Role e toque em <b>"Adicionar a Tela Inicio"</b></span>
+                            <span class="ios-step-desc">Pode ter que rolar para baixo no menu</span>
+                        </div>
+                    </div>
+                    <div class="ios-step">
+                        <div class="ios-step-num">3</div>
+                        <div class="ios-step-content">
+                            <span class="ios-step-title">Toque em <b>"Adicionar"</b></span>
+                            <span class="ios-step-desc">O app aparecera como icone na sua tela inicial</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="ios-result">
+                    <img src="ICONE CGC.jpg" alt="" class="ios-result-icon" />
+                    <span>Copia Colect ficara na sua tela como um app nativo!</span>
+                </div>
+                <div class="modal-actions">
+                    <button id="ios-install-close" class="modal-btn confirm"><i class="codicon codicon-check"></i> Entendi</button>
+                </div>
             </div>
         </div>
     </div>
