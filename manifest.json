@@ -1,0 +1,22 @@
+{
+    "name": "Copia Colect",
+    "short_name": "CopiaColect",
+    "description": "Coletor de Coordenadas GPS",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#1e1e1e",
+    "theme_color": "#0e639c",
+    "orientation": "any",
+    "icons": [
+        {
+            "src": "ICONE CGC.jpg",
+            "sizes": "192x192",
+            "type": "image/jpeg"
+        },
+        {
+            "src": "ICONE CGC.jpg",
+            "sizes": "512x512",
+            "type": "image/jpeg"
+        }
+    ]
+}

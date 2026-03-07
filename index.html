@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copia Colect - Coletor de Coordenadas GPS</title>
+    <link rel="icon" href="ICONE CGC.jpg" type="image/jpeg" />
+    <meta name="theme-color" content="#0e639c" />
+    <script>if(location.protocol!=='file:'){var l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);}</script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body data-theme="dark">
+    <div id="app">
+        <header>
+            <div class="header-row">
+                <div class="header-brand">
+                    <img src="ICONE CGC.jpg" alt="Copia Colect" class="header-logo" />
+                    <h1>Copia Colect</h1>
+                </div>
+                <div class="header-actions">
+                    <button id="btn-theme" class="btn-icon" title="Alternar tema"><i class="codicon codicon-color-mode"></i></button>
+                    <button id="btn-share" class="btn-icon" title="Compartilhar trajeto"><i class="codicon codicon-link"></i></button>
+                </div>
+            </div>
+            <!-- Project selector -->
+            <div class="project-bar">
+                <i class="codicon codicon-folder"></i>
+                <select id="project-select"></select>
+                <button id="btn-new-project" class="btn-icon-sm" title="Novo projeto"><i class="codicon codicon-add"></i></button>
+                <button id="btn-rename-project" class="btn-icon-sm" title="Renomear projeto"><i class="codicon codicon-edit"></i></button>
+                <button id="btn-delete-project" class="btn-icon-sm" title="Excluir projeto"><i class="codicon codicon-trash"></i></button>
+            </div>
+        </header>
+
+        <!-- Search bar -->
+        <div class="search-bar">
+            <i class="codicon codicon-search"></i>
+            <input type="text" id="search-input" placeholder="Buscar endereco ou local..." autocomplete="off" />
+            <div id="search-results" class="search-results hidden"></div>
+        </div>
+
+        <div id="map"></div>
+
+        <!-- Measure info bar -->
+        <div id="measure-bar" class="measure-bar hidden">
+            <i class="codicon codicon-ruler"></i>
+            <span id="measure-text">Clique em 2 pontos no mapa para medir</span>
+            <button id="btn-measure-cancel" class="btn-icon-sm" title="Cancelar medicao"><i class="codicon codicon-close"></i></button>
+        </div>
+
+        <div id="controls">
+            <div id="coords-display">
+                <span id="lat-display">Lat: --</span>
+                <span id="lng-display">Lng: --</span>
+            </div>
+
+            <div class="buttons">
+                <button id="btn-locate" title="Obter localizacao atual">
+                    <i class="codicon codicon-compass"></i><span>Localizar</span>
+                </button>
+                <button id="btn-add" title="Adicionar ponto no mapa">
+                    <i class="codicon codicon-add"></i><span>Adicionar</span>
+                </button>
+                <button id="btn-track" title="Iniciar rastreamento continuo">
+                    <i class="codicon codicon-record"></i><span>Rastreio</span>
+                </button>
+                <button id="btn-measure" title="Medir distancia entre pontos">
+                    <i class="codicon codicon-ruler"></i><span>Medir</span>
+                </button>
+            </div>
+
+            <div class="buttons secondary">
+                <button id="btn-clear" title="Limpar todos os pontos">
+                    <i class="codicon codicon-trash"></i><span>Limpar</span>
+                </button>
+                <button id="btn-export" title="Exportar dados">
+                    <i class="codicon codicon-cloud-download"></i><span>Exportar</span>
+                </button>
+                <button id="btn-import" title="Importar dados">
+                    <i class="codicon codicon-cloud-upload"></i><span>Importar</span>
+                </button>
+            </div>
+            <input type="file" id="file-import" accept=".json,.kml,.gpx" style="display:none" />
+        </div>
+
+        <div id="points-list">
+            <h3><i class="codicon codicon-list-unordered"></i> Pontos Coletados (<span id="points-count">0</span>)</h3>
+            <div id="points-container"></div>
+        </div>
+
+        <!-- Modal de legenda com cor e foto -->
+        <div id="modal-overlay" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="modal-header"><i class="codicon codicon-tag"></i> <span id="modal-title">Adicionar Ponto</span></div>
+                <input type="text" id="input-label" class="modal-input" placeholder="Legenda do ponto (ex: Casa, Trabalho...)" maxlength="60" autocomplete="off" />
+                <div class="modal-row">
+                    <div class="modal-field">
+                        <label>Categoria</label>
+                        <select id="input-category" class="modal-select">
+                            <option value="">Nenhuma</option>
+                            <option value="marco">Marco</option>
+                            <option value="poste">Poste</option>
+                            <option value="arvore">Arvore</option>
+                            <option value="nascente">Nascente</option>
+                            <option value="construcao">Construcao</option>
+                            <option value="estrada">Estrada</option>
+                            <option value="outro">Outro</option>
+                        </select>
+                    </div>
+                    <div class="modal-field">
+                        <label>Cor</label>
+                        <div class="color-picker" id="color-picker">
+                            <span class="color-dot selected" data-color="#4ec9b0" style="background:#4ec9b0"></span>
+                            <span class="color-dot" data-color="#569cd6" style="background:#569cd6"></span>
+                            <span class="color-dot" data-color="#c72e42" style="background:#c72e42"></span>
+                            <span class="color-dot" data-color="#dcdcaa" style="background:#dcdcaa"></span>
+                            <span class="color-dot" data-color="#cc6633" style="background:#cc6633"></span>
+                            <span class="color-dot" data-color="#c586c0" style="background:#c586c0"></span>
+                            <span class="color-dot" data-color="#d4d4d4" style="background:#d4d4d4"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-field photo-field">
+                    <label><i class="codicon codicon-device-camera"></i> Foto</label>
+                    <div class="photo-area">
+                        <img id="photo-preview" class="photo-preview hidden" />
+                        <button id="btn-take-photo" class="modal-btn photo-btn" type="button"><i class="codicon codicon-device-camera"></i> Tirar Foto</button>
+                        <button id="btn-remove-photo" class="modal-btn photo-btn danger hidden" type="button"><i class="codicon codicon-trash"></i></button>
+                    </div>
+                    <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
+                </div>
+                <div class="modal-coords" id="modal-coords"></div>
+                <div class="modal-actions">
+                    <button id="modal-cancel" class="modal-btn cancel"><i class="codicon codicon-close"></i> Cancelar</button>
+                    <button id="modal-confirm" class="modal-btn confirm"><i class="codicon codicon-check"></i> Salvar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export modal -->
+        <div id="export-overlay" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="modal-header"><i class="codicon codicon-cloud-download"></i> Exportar Dados</div>
+                <div class="export-options">
+                    <button class="export-btn" data-format="json"><i class="codicon codicon-json"></i> JSON</button>
+                    <button class="export-btn" data-format="gpx"><i class="codicon codicon-globe"></i> GPX</button>
+                    <button class="export-btn" data-format="kml"><i class="codicon codicon-globe"></i> KML</button>
+                </div>
+                <div class="modal-actions">
+                    <button id="export-cancel" class="modal-btn cancel"><i class="codicon codicon-close"></i> Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="stats">
+            <div class="stat">
+                <i class="codicon codicon-arrow-swap stat-icon"></i>
+                <span class="stat-label">Distancia</span>
+                <span id="total-distance" class="stat-value">0 m</span>
+            </div>
+            <div class="stat">
+                <i class="codicon codicon-screen-full stat-icon"></i>
+                <span class="stat-label">Area</span>
+                <span id="total-area" class="stat-value">--</span>
+            </div>
+            <div class="stat">
+                <i class="codicon codicon-pin stat-icon"></i>
+                <span class="stat-label">Pontos</span>
+                <span id="total-points" class="stat-value">0</span>
+            </div>
+        </div>
+
+        <div id="elevation-panel">
+            <div class="elevation-header">
+                <h3><i class="codicon codicon-graph-line"></i> Perfil de Elevacao</h3>
+                <div class="elevation-summary">
+                    <span class="elev-stat">Min: <b id="elev-min">--</b></span>
+                    <span class="elev-stat">Max: <b id="elev-max">--</b></span>
+                    <span class="elev-stat">Ganho: <b id="elev-gain">--</b></span>
+                </div>
+            </div>
+            <div id="elevation-chart">
+                <canvas id="elev-canvas"></canvas>
+                <div id="elev-tooltip" class="elev-tooltip hidden"></div>
+            </div>
+            <div id="elev-empty" class="elev-empty">Adicione pontos para ver o perfil de elevacao</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
