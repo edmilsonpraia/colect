@@ -322,6 +322,36 @@ button .codicon { font-size: 14px; }
     .search-bar { padding: 5px 8px; }
 }
 
+/* Install button */
+.btn-install {
+    background: #388a34; color: #fff; border: none; border-radius: 3px;
+    padding: 4px 10px; cursor: pointer; font-size: 12px; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 5px; transition: all 0.12s;
+    animation: installGlow 2s ease-in-out 3;
+}
+.btn-install:hover { background: #46a041; }
+.btn-install.hidden { display: none; }
+.btn-install .codicon { font-size: 14px; }
+@keyframes installGlow { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 12px rgba(56,138,52,0.6)} }
+
+/* Install banner */
+.install-banner {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--bg2); border-top: 2px solid var(--accent);
+    padding: 14px 16px; z-index: 10000;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+    animation: slideUp 0.3s ease;
+}
+.install-banner.hidden { display: none; }
+@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+.install-banner-content { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.install-banner-icon { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; }
+.install-banner-text { display: flex; flex-direction: column; gap: 2px; }
+.install-banner-text strong { color: var(--text2); font-size: 15px; }
+.install-banner-text span { color: var(--text-dim); font-size: 12px; }
+.install-banner-actions { display: flex; gap: 8px; }
+.install-banner-actions .modal-btn { flex: 1; padding: 10px 0; font-size: 13px; }
+
 /* Desktop hover refinements */
 @media (hover: hover) {
     .point-item .btn-remove, .point-item .btn-focus, .point-label-edit {

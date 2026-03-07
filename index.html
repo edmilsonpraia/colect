@@ -6,6 +6,10 @@
     <title>Copia Colect - Coletor de Coordenadas GPS</title>
     <link rel="icon" href="ICONE CGC.jpg" type="image/jpeg" />
     <meta name="theme-color" content="#0e639c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Copia Colect" />
+    <link rel="apple-touch-icon" href="ICONE CGC.jpg" />
     <script>if(location.protocol!=='file:'){var l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);}</script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css" />
@@ -20,6 +24,7 @@
                     <h1>Copia Colect</h1>
                 </div>
                 <div class="header-actions">
+                    <button id="btn-install" class="btn-install hidden" title="Instalar aplicativo"><i class="codicon codicon-desktop-download"></i><span>Instalar</span></button>
                     <button id="btn-theme" class="btn-icon" title="Alternar tema"><i class="codicon codicon-color-mode"></i></button>
                     <button id="btn-share" class="btn-icon" title="Compartilhar trajeto"><i class="codicon codicon-link"></i></button>
                 </div>
@@ -186,6 +191,21 @@
                 <div id="elev-tooltip" class="elev-tooltip hidden"></div>
             </div>
             <div id="elev-empty" class="elev-empty">Adicione pontos para ver o perfil de elevacao</div>
+        </div>
+
+        <!-- Install banner (mobile) -->
+        <div id="install-banner" class="install-banner hidden">
+            <div class="install-banner-content">
+                <img src="ICONE CGC.jpg" alt="Copia Colect" class="install-banner-icon" />
+                <div class="install-banner-text">
+                    <strong>Instalar Copia Colect</strong>
+                    <span>Acesse rapidamente como app no seu telefone</span>
+                </div>
+            </div>
+            <div class="install-banner-actions">
+                <button id="install-banner-close" class="modal-btn cancel">Agora nao</button>
+                <button id="install-banner-btn" class="modal-btn confirm"><i class="codicon codicon-desktop-download"></i> Instalar</button>
+            </div>
         </div>
     </div>
 

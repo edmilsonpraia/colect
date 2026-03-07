@@ -8,6 +8,74 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 // ============================================================
+// PWA INSTALL PROMPT
+// ============================================================
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+
+    // Show install button in header
+    const btnInstall = document.getElementById('btn-install');
+    if (btnInstall) btnInstall.classList.remove('hidden');
+
+    // Show install banner after 3 seconds (only once per session)
+    if (!sessionStorage.getItem('cc-install-dismissed')) {
+        setTimeout(() => {
+            const banner = document.getElementById('install-banner');
+            if (banner && deferredInstallPrompt) banner.classList.remove('hidden');
+        }, 3000);
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    const btnInstall = document.getElementById('btn-install');
+    if (btnInstall) btnInstall.classList.add('hidden');
+    const banner = document.getElementById('install-banner');
+    if (banner) banner.classList.add('hidden');
+});
+
+// Install button click (header)
+document.addEventListener('DOMContentLoaded', () => {
+    const btnInstall = document.getElementById('btn-install');
+    const banner = document.getElementById('install-banner');
+    const bannerBtn = document.getElementById('install-banner-btn');
+    const bannerClose = document.getElementById('install-banner-close');
+
+    function triggerInstall() {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then(() => {
+            deferredInstallPrompt = null;
+            if (btnInstall) btnInstall.classList.add('hidden');
+            if (banner) banner.classList.add('hidden');
+        });
+    }
+
+    if (btnInstall) btnInstall.addEventListener('click', triggerInstall);
+    if (bannerBtn) bannerBtn.addEventListener('click', triggerInstall);
+    if (bannerClose) bannerClose.addEventListener('click', () => {
+        if (banner) banner.classList.add('hidden');
+        sessionStorage.setItem('cc-install-dismissed', '1');
+    });
+
+    // iOS: show manual install instructions
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+
+    if (isIOS && !isStandalone) {
+        if (btnInstall) {
+            btnInstall.classList.remove('hidden');
+            btnInstall.addEventListener('click', () => {
+                alert('Para instalar no iPhone/iPad:\n\n1. Toque no botao de Compartilhar (icone de quadrado com seta)\n2. Role e toque em "Adicionar a Tela Inicio"\n3. Toque em "Adicionar"\n\nO app aparecera como icone na sua tela inicial!');
+            });
+        }
+    }
+});
+
+// ============================================================
 // PROJETOS
 // ============================================================
 function loadProjects() {

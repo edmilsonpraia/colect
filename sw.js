@@ -1,4 +1,4 @@
-const CACHE_NAME = 'copia-colect-v1';
+const CACHE_NAME = 'copia-colect-v2';
 const ASSETS = [
     './',
     './index.html',
