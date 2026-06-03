@@ -1250,10 +1250,41 @@ btnImport.addEventListener('click', () => fileImport.click());
 fileImport.addEventListener('change', (e) => { if (e.target.files[0]) { importFile(e.target.files[0]); e.target.value = ''; } });
 
 // ============================================================
-// SYNC INDICATOR
+// ONLINE / OFFLINE + SYNC INDICATOR + TOASTS
 // ============================================================
 const syncIndicator = $('sync-indicator');
 const syncCount = $('sync-count');
+const offlineBanner = $('offline-banner');
+const toastContainer = $('toast-container');
+
+function showToast(message, kind = 'info', duration = 3000) {
+    if (!toastContainer) return;
+    const icon = kind === 'success' ? 'codicon-check'
+              : kind === 'error'   ? 'codicon-error'
+              : 'codicon-info';
+    const div = document.createElement('div');
+    div.className = `toast toast-${kind}`;
+    div.innerHTML = `<i class="codicon ${icon}"></i><span>${message}</span>`;
+    toastContainer.appendChild(div);
+    setTimeout(() => {
+        div.classList.add('fade-out');
+        setTimeout(() => div.remove(), 220);
+    }, duration);
+}
+
+function updateOnlineStatus() {
+    const online = navigator.onLine;
+    if (online) {
+        offlineBanner?.classList.add('hidden');
+        document.body.classList.remove('has-offline-banner');
+    } else {
+        offlineBanner?.classList.remove('hidden');
+        document.body.classList.add('has-offline-banner');
+        if (window.cc?.map?.invalidateSize) {
+            setTimeout(() => window.cc.map.invalidateSize(), 50);
+        }
+    }
+}
 
 function updateSyncIndicator() {
     const n = window.cc.store.pendingCount();
@@ -1265,17 +1296,49 @@ function updateSyncIndicator() {
     }
 }
 
+async function manualSync() {
+    if (!navigator.onLine) {
+        showToast('Voce esta offline. Conecte-se primeiro.', 'error');
+        return;
+    }
+    if (window.cc.store.pendingCount() === 0) {
+        showToast('Tudo sincronizado.', 'success', 2000);
+        return;
+    }
+    syncIndicator.disabled = true;
+    try {
+        await window.cc.store.syncPending();
+    } finally {
+        syncIndicator.disabled = false;
+    }
+}
+
+syncIndicator?.addEventListener('click', manualSync);
+
 window.cc.store.onChange((e) => {
-    if (e.type === 'pending' || e.type === 'sync-end') {
+    if (e.type === 'pending') {
         updateSyncIndicator();
+        if (!navigator.onLine) {
+            // Toast discreto so quando ja estamos offline
+            // (evita spam quando ainda online e a chamada falhou por outro motivo)
+        }
     }
     if (e.type === 'sync-start') {
         syncIndicator?.classList.add('syncing');
     }
     if (e.type === 'sync-end') {
         syncIndicator?.classList.remove('syncing');
+        updateSyncIndicator();
+        const { synced = 0, failed = 0, remaining = 0 } = e.detail || {};
+        if (synced > 0 && failed === 0 && remaining === 0) {
+            showToast(`${synced} ${synced === 1 ? 'alteracao sincronizada' : 'alteracoes sincronizadas'}.`, 'success');
+        } else if (failed > 0) {
+            showToast(`${failed} ${failed === 1 ? 'alteracao falhou' : 'alteracoes falharam'} apos varias tentativas.`, 'error', 5000);
+        } else if (synced > 0 && remaining > 0) {
+            showToast(`${synced} sincronizadas, ${remaining} pendentes.`, 'info');
+        }
         // Recarrega projeto atual apos sync para refletir IDs reais
-        if (e.detail?.synced > 0 && state.project) {
+        if (synced > 0 && state.project) {
             window.cc.store.listPoints(state.project.id).then((pts) => {
                 state.points = pts;
                 renderAll();
@@ -1285,8 +1348,18 @@ window.cc.store.onChange((e) => {
 });
 
 window.addEventListener('online', () => {
+    updateOnlineStatus();
+    showToast('Conectado novamente', 'success', 2000);
     window.cc.store.syncPending().catch(() => {});
 });
+
+window.addEventListener('offline', () => {
+    updateOnlineStatus();
+    showToast('Sem conexao - trabalhando offline', 'info', 2500);
+});
+
+// Estado inicial
+updateOnlineStatus();
 
 // ============================================================
 // DASHBOARD (membros + estatisticas + convites)
@@ -1327,6 +1400,180 @@ function formatRelative(iso) {
     return d.toLocaleDateString('pt-BR');
 }
 
+// ===== TABS =====
+const dashboardModal = dashboardOverlay?.querySelector('.dashboard-modal');
+const dashboardTabs = dashboardOverlay?.querySelectorAll('.dashboard-tab') || [];
+const dashboardPanels = dashboardOverlay?.querySelectorAll('.dashboard-tab-panel') || [];
+
+function switchDashboardTab(name) {
+    dashboardTabs.forEach((t) => t.classList.toggle('active', t.dataset.dashTab === name));
+    dashboardPanels.forEach((p) => p.classList.toggle('active', p.dataset.dashPanel === name));
+    if (name === 'gallery') loadGallery();
+    if (name === 'activity') loadActivity();
+}
+dashboardTabs.forEach((tab) => {
+    tab.addEventListener('click', () => switchDashboardTab(tab.dataset.dashTab));
+});
+
+// ===== GALERIA =====
+const galleryGrid = $('gallery-grid');
+const galleryCount = $('gallery-count');
+let galleryCache = [];
+
+async function loadGallery() {
+    if (!state.project) return;
+    galleryGrid.innerHTML = '<div class="gallery-empty">Carregando...</div>';
+    galleryCount.textContent = '...';
+    try {
+        const photos = await window.cc.store.listProjectPhotos(state.project.id);
+        galleryCache = photos;
+        galleryCount.textContent = String(photos.length);
+        if (!photos.length) {
+            galleryGrid.innerHTML = '<div class="gallery-empty">Nenhuma foto ainda neste projeto.</div>';
+            return;
+        }
+        galleryGrid.innerHTML = '';
+        photos.forEach((p, i) => {
+            const item = document.createElement('div');
+            item.className = 'gallery-item';
+            item.dataset.idx = i;
+            const author = p.author?.display_name || p.author?.email || 'Desconhecido';
+            const when = formatRelative(p.created_at);
+            item.innerHTML = `
+                <img src="${p.photo}" alt="${p.label || 'foto'}" loading="lazy" />
+                <div class="gallery-item-overlay">
+                    <div class="gallery-item-author">${author}</div>
+                    <div class="gallery-item-date">${when}</div>
+                </div>
+            `;
+            item.addEventListener('click', () => openLightbox(i));
+            galleryGrid.appendChild(item);
+        });
+    } catch (err) {
+        galleryGrid.innerHTML = `<div class="gallery-empty">Erro: ${err.message || err}</div>`;
+    }
+}
+
+// ===== LIGHTBOX =====
+const photoLightbox = $('photo-lightbox');
+const lightboxImg = $('lightbox-img');
+const lightboxMeta = $('lightbox-meta');
+const lightboxClose = $('lightbox-close');
+
+function openLightbox(idx) {
+    const p = galleryCache[idx];
+    if (!p) return;
+    lightboxImg.src = p.photo;
+    const author = p.author?.display_name || p.author?.email || 'Desconhecido';
+    const when = new Date(p.created_at).toLocaleString('pt-BR');
+    lightboxMeta.innerHTML = `
+        ${p.label ? `<div class="meta-row"><b>${p.label}</b></div>` : ''}
+        <div class="meta-row">Por <b>${author}</b></div>
+        <div class="meta-row">${when}</div>
+        <div class="meta-row">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</div>
+    `;
+    photoLightbox.classList.remove('hidden');
+}
+function closeLightbox() {
+    photoLightbox.classList.add('hidden');
+    lightboxImg.src = '';
+}
+lightboxClose?.addEventListener('click', closeLightbox);
+photoLightbox?.addEventListener('click', (e) => {
+    if (e.target === photoLightbox) closeLightbox();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !photoLightbox.classList.contains('hidden')) closeLightbox();
+});
+
+// ===== TIMELINE DE ATIVIDADES =====
+const activityList = $('activity-list');
+const activityFilterType = $('activity-filter-type');
+let activityCache = [];
+
+const ACTION_META = {
+    'point.create':       { icon: 'codicon-add', kind: 'create' },
+    'point.update':       { icon: 'codicon-edit', kind: 'update' },
+    'point.delete':       { icon: 'codicon-trash', kind: 'delete' },
+    'member.added':       { icon: 'codicon-person-add', kind: 'member' },
+    'member.removed':     { icon: 'codicon-close', kind: 'delete' },
+    'member.role_changed':{ icon: 'codicon-shield', kind: 'member' },
+    'project.created':    { icon: 'codicon-folder', kind: 'project' },
+    'project.renamed':    { icon: 'codicon-edit', kind: 'project' },
+};
+
+function describeActivity(log) {
+    const actor = log.actor?.display_name || log.actor?.email || 'Alguem';
+    const meta = log.metadata || {};
+    const affected = log.affected_member?.display_name || log.affected_member?.email || 'um membro';
+    const roleLbl = (r) => ROLE_LABEL[r] || r;
+    switch (log.action) {
+        case 'point.create':
+            return `<b>${actor}</b> adicionou ponto ${meta.label ? `<em>${meta.label}</em>` : ''}${meta.has_photo ? ' com foto' : ''}`;
+        case 'point.update':
+            return `<b>${actor}</b> editou ponto ${meta.label ? `<em>${meta.label}</em>` : ''}`;
+        case 'point.delete':
+            return `<b>${actor}</b> removeu ponto ${meta.label ? `<em>${meta.label}</em>` : ''}`;
+        case 'member.added':
+            return `<b>${actor}</b> adicionou <b>${affected}</b> como <em>${roleLbl(meta.role)}</em>`;
+        case 'member.removed':
+            return `<b>${actor}</b> removeu <b>${affected}</b>`;
+        case 'member.role_changed':
+            return `<b>${actor}</b> mudou papel de <b>${affected}</b> de <em>${roleLbl(meta.old_role)}</em> para <em>${roleLbl(meta.new_role)}</em>`;
+        case 'project.created':
+            return `<b>${actor}</b> criou o projeto <em>${meta.name || ''}</em>`;
+        case 'project.renamed':
+            return `<b>${actor}</b> renomeou de <em>${meta.old_name || ''}</em> para <em>${meta.new_name || ''}</em>`;
+        default:
+            return `<b>${actor}</b> ${log.action}`;
+    }
+}
+
+function renderActivityList() {
+    const filter = activityFilterType?.value || '';
+    const filtered = filter
+        ? activityCache.filter((l) => l.action.startsWith(filter + '.'))
+        : activityCache;
+    if (!filtered.length) {
+        activityList.innerHTML = '<div class="activity-empty">Nenhuma atividade encontrada.</div>';
+        return;
+    }
+    activityList.innerHTML = '';
+    filtered.forEach((log) => {
+        const m = ACTION_META[log.action] || { icon: 'codicon-circle-small', kind: 'update' };
+        const clickable = log.entity_type === 'point' && log.action === 'point.create';
+        const div = document.createElement('div');
+        div.className = `activity-item${clickable ? ' clickable' : ''}`;
+        div.innerHTML = `
+            <div class="activity-icon act-${m.kind}"><i class="codicon ${m.icon}"></i></div>
+            <div class="activity-body">
+                <div class="activity-text">${describeActivity(log)}</div>
+                <div class="activity-time" title="${new Date(log.created_at).toLocaleString('pt-BR')}">${formatRelative(log.created_at)}</div>
+            </div>
+        `;
+        if (clickable && log.metadata?.lat && log.metadata?.lng) {
+            div.addEventListener('click', () => {
+                closeDashboard();
+                map.setView([log.metadata.lat, log.metadata.lng], 17);
+            });
+        }
+        activityList.appendChild(div);
+    });
+}
+
+activityFilterType?.addEventListener('change', renderActivityList);
+
+async function loadActivity() {
+    if (!state.project) return;
+    activityList.innerHTML = '<div class="activity-empty">Carregando...</div>';
+    try {
+        activityCache = await window.cc.store.getActivities(state.project.id, 200);
+        renderActivityList();
+    } catch (err) {
+        activityList.innerHTML = `<div class="activity-empty">Erro: ${err.message || err}</div>`;
+    }
+}
+
 async function openDashboard() {
     if (!state.project) { alert('Selecione um projeto primeiro.'); return; }
     dashProjectName.textContent = state.project.name;
@@ -1339,7 +1586,10 @@ async function openDashboard() {
     inviteFeedback.textContent = '';
     inviteFeedback.className = 'invite-feedback';
 
-    dashInviteSection.classList.toggle('hidden', state.myRole !== 'admin');
+    const isAdmin = state.myRole === 'admin';
+    dashboardModal?.classList.toggle('is-admin', isAdmin);
+    dashInviteSection.classList.toggle('hidden', !isAdmin);
+    switchDashboardTab('overview');
     dashboardOverlay.classList.remove('hidden');
 
     try {
@@ -1361,6 +1611,7 @@ async function openDashboard() {
 
 function closeDashboard() {
     dashboardOverlay.classList.add('hidden');
+    closeLightbox();
 }
 
 function renderMembers(members) {

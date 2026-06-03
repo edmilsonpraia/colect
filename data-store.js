@@ -355,6 +355,61 @@
         return data;
     }
 
+    async function getActivities(projectId, limit = 200) {
+        const { data: logs, error } = await sb.from('activity_log')
+            .select('*').eq('project_id', projectId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+        if (error) throw error;
+        if (!logs || !logs.length) return [];
+        // Coleta IDs envolvidos (actor + entity quando for member)
+        const ids = new Set();
+        logs.forEach((l) => {
+            if (l.actor_id) ids.add(l.actor_id);
+            if (l.entity_type === 'member' && l.entity_id) ids.add(l.entity_id);
+        });
+        let profById = {};
+        if (ids.size) {
+            const { data: profs } = await sb.from('profiles')
+                .select('id, email, display_name').in('id', [...ids]);
+            profById = Object.fromEntries((profs || []).map((p) => [p.id, p]));
+        }
+        return logs.map((l) => ({
+            ...l,
+            actor: profById[l.actor_id] || null,
+            affected_member: l.entity_type === 'member' ? (profById[l.entity_id] || null) : null,
+        }));
+    }
+
+    async function listProjectPhotos(projectId) {
+        const { data, error } = await sb.from('points')
+            .select('id, user_id, project_id, lat, lng, label, category, color, photo_url, created_at')
+            .eq('project_id', projectId)
+            .not('photo_url', 'is', null)
+            .neq('photo_url', '')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        if (!data || !data.length) return [];
+        const userIds = [...new Set(data.map((p) => p.user_id).filter(Boolean))];
+        let profById = {};
+        if (userIds.length) {
+            const { data: profs } = await sb.from('profiles')
+                .select('id, email, display_name').in('id', userIds);
+            profById = Object.fromEntries((profs || []).map((p) => [p.id, p]));
+        }
+        return data.map((p) => ({
+            id: p.id,
+            project_id: p.project_id,
+            lat: p.lat, lng: p.lng,
+            label: p.label || '',
+            category: p.category || '',
+            color: p.color || '#4ec9b0',
+            photo: p.photo_url,
+            created_at: p.created_at,
+            author: profById[p.user_id] || null,
+        }));
+    }
+
     async function getMyRole(projectId) {
         const user = window.cc.auth.getUser();
         if (!user) return null;
@@ -439,6 +494,8 @@
         // members / dashboard
         listMembers, inviteMember, updateMemberRole, removeMember,
         getDashboard, getMyRole,
+        // reports
+        getActivities, listProjectPhotos,
         // sync / events
         syncPending, pendingCount, onChange,
         // utils

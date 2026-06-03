@@ -16,6 +16,15 @@
     <link rel="stylesheet" href="style.css" />
 </head>
 <body data-theme="dark">
+    <!-- Offline banner (shown when navigator is offline) -->
+    <div id="offline-banner" class="offline-banner hidden">
+        <i class="codicon codicon-cloud-offline"></i>
+        <span>Sem conexao - alteracoes serao sincronizadas quando voltar</span>
+    </div>
+
+    <!-- Toasts container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <div id="app">
         <header>
             <div class="header-row">
@@ -42,9 +51,9 @@
                 <button id="btn-rename-project" class="btn-icon-sm" title="Renomear projeto"><i class="codicon codicon-edit"></i></button>
                 <button id="btn-delete-project" class="btn-icon-sm" title="Excluir projeto"><i class="codicon codicon-trash"></i></button>
                 <button id="btn-dashboard" class="btn-icon-sm" title="Painel do projeto"><i class="codicon codicon-organization"></i></button>
-                <span id="sync-indicator" class="sync-indicator hidden" title="Mudancas pendentes para sincronizar">
+                <button id="sync-indicator" class="sync-indicator hidden" title="Clique para sincronizar agora" type="button">
                     <i class="codicon codicon-cloud-upload"></i><span id="sync-count">0</span>
-                </span>
+                </button>
             </div>
         </header>
 
@@ -217,7 +226,7 @@
             </div>
         </div>
 
-        <!-- Dashboard modal (project members + stats) -->
+        <!-- Dashboard modal (project members + stats + gallery + activity) -->
         <div id="dashboard-overlay" class="modal-overlay hidden">
             <div class="modal dashboard-modal">
                 <div class="modal-header">
@@ -226,56 +235,109 @@
                     <button id="dashboard-close" class="btn-icon-sm" title="Fechar" style="margin-left:auto"><i class="codicon codicon-close"></i></button>
                 </div>
 
-                <div class="dashboard-section">
-                    <div class="dashboard-project-info">
-                        <h4 id="dashboard-project-name">--</h4>
-                        <span id="dashboard-my-role" class="role-badge">--</span>
+                <div class="dashboard-tabs">
+                    <button class="dashboard-tab active" data-dash-tab="overview"><i class="codicon codicon-dashboard"></i> Visao Geral</button>
+                    <button class="dashboard-tab" data-dash-tab="members"><i class="codicon codicon-organization"></i> Membros</button>
+                    <button class="dashboard-tab dashboard-tab-admin" data-dash-tab="gallery"><i class="codicon codicon-device-camera"></i> Galeria</button>
+                    <button class="dashboard-tab dashboard-tab-admin" data-dash-tab="activity"><i class="codicon codicon-history"></i> Atividades</button>
+                </div>
+
+                <!-- TAB: Visao Geral -->
+                <div class="dashboard-tab-panel active" data-dash-panel="overview">
+                    <div class="dashboard-section">
+                        <div class="dashboard-project-info">
+                            <h4 id="dashboard-project-name">--</h4>
+                            <span id="dashboard-my-role" class="role-badge">--</span>
+                        </div>
+                    </div>
+                    <div class="dashboard-section">
+                        <h5><i class="codicon codicon-pulse"></i> Estatisticas</h5>
+                        <div class="dashboard-stats">
+                            <div class="dash-stat">
+                                <span class="dash-stat-label">Pontos</span>
+                                <span class="dash-stat-value" id="dash-total-points">--</span>
+                            </div>
+                            <div class="dash-stat">
+                                <span class="dash-stat-label">Colaboradores ativos</span>
+                                <span class="dash-stat-value" id="dash-contributors">--</span>
+                            </div>
+                            <div class="dash-stat">
+                                <span class="dash-stat-label">Membros</span>
+                                <span class="dash-stat-value" id="dash-members-count">--</span>
+                            </div>
+                            <div class="dash-stat">
+                                <span class="dash-stat-label">Ultimo ponto</span>
+                                <span class="dash-stat-value" id="dash-last-point">--</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="dashboard-section">
-                    <h5><i class="codicon codicon-pulse"></i> Estatisticas</h5>
-                    <div class="dashboard-stats">
-                        <div class="dash-stat">
-                            <span class="dash-stat-label">Pontos</span>
-                            <span class="dash-stat-value" id="dash-total-points">--</span>
+                <!-- TAB: Membros -->
+                <div class="dashboard-tab-panel" data-dash-panel="members">
+                    <div class="dashboard-section">
+                        <h5><i class="codicon codicon-organization"></i> Membros do Projeto</h5>
+                        <div id="dashboard-members-list" class="members-list">
+                            <div class="members-empty">Carregando...</div>
                         </div>
-                        <div class="dash-stat">
-                            <span class="dash-stat-label">Colaboradores ativos</span>
-                            <span class="dash-stat-value" id="dash-contributors">--</span>
+                    </div>
+                    <div class="dashboard-section dashboard-invite-section hidden" id="dashboard-invite-section">
+                        <h5><i class="codicon codicon-person-add"></i> Convidar Membro</h5>
+                        <form id="invite-form" class="invite-form">
+                            <input type="email" id="invite-email" class="modal-input" placeholder="email@exemplo.com" required />
+                            <select id="invite-role" class="modal-select">
+                                <option value="collaborator">Colaborador</option>
+                                <option value="viewer">Visualizador</option>
+                                <option value="admin">Administrador</option>
+                            </select>
+                            <button type="submit" class="modal-btn confirm"><i class="codicon codicon-add"></i> Convidar</button>
+                        </form>
+                        <div class="invite-feedback" id="invite-feedback"></div>
+                        <p class="invite-note">A pessoa precisa ja ter conta no Copia Colect.</p>
+                    </div>
+                </div>
+
+                <!-- TAB: Galeria -->
+                <div class="dashboard-tab-panel" data-dash-panel="gallery">
+                    <div class="dashboard-section">
+                        <div class="gallery-header">
+                            <h5><i class="codicon codicon-device-camera"></i> Galeria de Fotos</h5>
+                            <span id="gallery-count" class="gallery-count">--</span>
                         </div>
-                        <div class="dash-stat">
-                            <span class="dash-stat-label">Membros</span>
-                            <span class="dash-stat-value" id="dash-members-count">--</span>
-                        </div>
-                        <div class="dash-stat">
-                            <span class="dash-stat-label">Ultimo ponto</span>
-                            <span class="dash-stat-value" id="dash-last-point">--</span>
+                        <div id="gallery-grid" class="gallery-grid">
+                            <div class="gallery-empty">Carregando...</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="dashboard-section">
-                    <h5><i class="codicon codicon-organization"></i> Membros</h5>
-                    <div id="dashboard-members-list" class="members-list">
-                        <div class="members-empty">Carregando...</div>
+                <!-- TAB: Atividades -->
+                <div class="dashboard-tab-panel" data-dash-panel="activity">
+                    <div class="dashboard-section">
+                        <div class="activity-header">
+                            <h5><i class="codicon codicon-history"></i> Linha do Tempo</h5>
+                            <div class="activity-filter">
+                                <select id="activity-filter-type" class="modal-select">
+                                    <option value="">Todas as acoes</option>
+                                    <option value="point">Pontos</option>
+                                    <option value="member">Membros</option>
+                                    <option value="project">Projeto</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="activity-list" class="activity-list">
+                            <div class="activity-empty">Carregando...</div>
+                        </div>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <div class="dashboard-section dashboard-invite-section hidden" id="dashboard-invite-section">
-                    <h5><i class="codicon codicon-person-add"></i> Convidar Membro</h5>
-                    <form id="invite-form" class="invite-form">
-                        <input type="email" id="invite-email" class="modal-input" placeholder="email@exemplo.com" required />
-                        <select id="invite-role" class="modal-select">
-                            <option value="collaborator">Colaborador</option>
-                            <option value="viewer">Visualizador</option>
-                            <option value="admin">Administrador</option>
-                        </select>
-                        <button type="submit" class="modal-btn confirm"><i class="codicon codicon-add"></i> Convidar</button>
-                    </form>
-                    <div class="invite-feedback" id="invite-feedback"></div>
-                    <p class="invite-note">A pessoa precisa ja ter conta no Copia Colect.</p>
-                </div>
+        <!-- Lightbox para visualizar foto em tamanho grande -->
+        <div id="photo-lightbox" class="photo-lightbox hidden">
+            <button id="lightbox-close" class="lightbox-close" title="Fechar"><i class="codicon codicon-close"></i></button>
+            <div class="lightbox-content">
+                <img id="lightbox-img" class="lightbox-img" alt="" />
+                <div id="lightbox-meta" class="lightbox-meta"></div>
             </div>
         </div>
 
