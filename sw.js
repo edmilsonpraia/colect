@@ -1,9 +1,11 @@
-const CACHE_NAME = 'copia-colect-v2';
+const CACHE_NAME = 'copia-colect-v4';
 const ASSETS = [
     './',
     './index.html',
     './style.css',
     './app.js',
+    './supabase-client.js',
+    './data-store.js',
     './ICONE CGC.jpg',
     './manifest.json',
 ];

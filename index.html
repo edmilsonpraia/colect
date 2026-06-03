@@ -27,6 +27,11 @@
                     <button id="btn-install" class="btn-install hidden" title="Instalar aplicativo"><i class="codicon codicon-desktop-download"></i><span>Instalar</span></button>
                     <button id="btn-theme" class="btn-icon" title="Alternar tema"><i class="codicon codicon-color-mode"></i></button>
                     <button id="btn-share" class="btn-icon" title="Compartilhar trajeto"><i class="codicon codicon-link"></i></button>
+                    <div id="user-pill" class="user-pill hidden">
+                        <i class="codicon codicon-account"></i>
+                        <span id="user-pill-name">--</span>
+                        <button id="btn-logout" class="btn-icon-sm" title="Sair"><i class="codicon codicon-sign-out"></i></button>
+                    </div>
                 </div>
             </div>
             <!-- Project selector -->
@@ -36,6 +41,10 @@
                 <button id="btn-new-project" class="btn-icon-sm" title="Novo projeto"><i class="codicon codicon-add"></i></button>
                 <button id="btn-rename-project" class="btn-icon-sm" title="Renomear projeto"><i class="codicon codicon-edit"></i></button>
                 <button id="btn-delete-project" class="btn-icon-sm" title="Excluir projeto"><i class="codicon codicon-trash"></i></button>
+                <button id="btn-dashboard" class="btn-icon-sm" title="Painel do projeto"><i class="codicon codicon-organization"></i></button>
+                <span id="sync-indicator" class="sync-indicator hidden" title="Mudancas pendentes para sincronizar">
+                    <i class="codicon codicon-cloud-upload"></i><span id="sync-count">0</span>
+                </span>
             </div>
         </header>
 
@@ -208,6 +217,68 @@
             </div>
         </div>
 
+        <!-- Dashboard modal (project members + stats) -->
+        <div id="dashboard-overlay" class="modal-overlay hidden">
+            <div class="modal dashboard-modal">
+                <div class="modal-header">
+                    <i class="codicon codicon-organization"></i>
+                    <span>Painel do Projeto</span>
+                    <button id="dashboard-close" class="btn-icon-sm" title="Fechar" style="margin-left:auto"><i class="codicon codicon-close"></i></button>
+                </div>
+
+                <div class="dashboard-section">
+                    <div class="dashboard-project-info">
+                        <h4 id="dashboard-project-name">--</h4>
+                        <span id="dashboard-my-role" class="role-badge">--</span>
+                    </div>
+                </div>
+
+                <div class="dashboard-section">
+                    <h5><i class="codicon codicon-pulse"></i> Estatisticas</h5>
+                    <div class="dashboard-stats">
+                        <div class="dash-stat">
+                            <span class="dash-stat-label">Pontos</span>
+                            <span class="dash-stat-value" id="dash-total-points">--</span>
+                        </div>
+                        <div class="dash-stat">
+                            <span class="dash-stat-label">Colaboradores ativos</span>
+                            <span class="dash-stat-value" id="dash-contributors">--</span>
+                        </div>
+                        <div class="dash-stat">
+                            <span class="dash-stat-label">Membros</span>
+                            <span class="dash-stat-value" id="dash-members-count">--</span>
+                        </div>
+                        <div class="dash-stat">
+                            <span class="dash-stat-label">Ultimo ponto</span>
+                            <span class="dash-stat-value" id="dash-last-point">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-section">
+                    <h5><i class="codicon codicon-organization"></i> Membros</h5>
+                    <div id="dashboard-members-list" class="members-list">
+                        <div class="members-empty">Carregando...</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-section dashboard-invite-section hidden" id="dashboard-invite-section">
+                    <h5><i class="codicon codicon-person-add"></i> Convidar Membro</h5>
+                    <form id="invite-form" class="invite-form">
+                        <input type="email" id="invite-email" class="modal-input" placeholder="email@exemplo.com" required />
+                        <select id="invite-role" class="modal-select">
+                            <option value="collaborator">Colaborador</option>
+                            <option value="viewer">Visualizador</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                        <button type="submit" class="modal-btn confirm"><i class="codicon codicon-add"></i> Convidar</button>
+                    </form>
+                    <div class="invite-feedback" id="invite-feedback"></div>
+                    <p class="invite-note">A pessoa precisa ja ter conta no Copia Colect.</p>
+                </div>
+            </div>
+        </div>
+
         <!-- iOS install guide modal -->
         <div id="ios-install-overlay" class="modal-overlay hidden">
             <div class="modal ios-install-modal">
@@ -246,7 +317,62 @@
         </div>
     </div>
 
+    <!-- Auth screen (login / signup) -->
+    <div id="auth-screen" class="auth-screen hidden">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <img src="ICONE CGC.jpg" alt="Copia Colect" class="auth-logo" />
+                <h2>Copia Colect</h2>
+                <p class="auth-tagline">Coletor de Coordenadas GPS</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="signin"><i class="codicon codicon-sign-in"></i> Entrar</button>
+                <button class="auth-tab" data-tab="signup"><i class="codicon codicon-person-add"></i> Cadastrar</button>
+            </div>
+
+            <form id="auth-form-signin" class="auth-form">
+                <label class="auth-label">Email
+                    <input type="email" id="signin-email" class="auth-input" autocomplete="email" required placeholder="voce@exemplo.com" />
+                </label>
+                <label class="auth-label">Senha
+                    <input type="password" id="signin-password" class="auth-input" autocomplete="current-password" required placeholder="--------" minlength="6" />
+                </label>
+                <div class="auth-error" id="signin-error"></div>
+                <button type="submit" class="auth-btn" id="btn-signin">
+                    <i class="codicon codicon-sign-in"></i> Entrar
+                </button>
+                <button type="button" class="auth-link" id="btn-forgot">Esqueci minha senha</button>
+            </form>
+
+            <form id="auth-form-signup" class="auth-form hidden">
+                <label class="auth-label">Nome
+                    <input type="text" id="signup-name" class="auth-input" autocomplete="name" placeholder="Seu nome" maxlength="60" />
+                </label>
+                <label class="auth-label">Email
+                    <input type="email" id="signup-email" class="auth-input" autocomplete="email" required placeholder="voce@exemplo.com" />
+                </label>
+                <label class="auth-label">Senha
+                    <input type="password" id="signup-password" class="auth-input" autocomplete="new-password" required placeholder="Min. 6 caracteres" minlength="6" />
+                </label>
+                <div class="auth-error" id="signup-error"></div>
+                <div class="auth-info" id="signup-info"></div>
+                <button type="submit" class="auth-btn" id="btn-signup">
+                    <i class="codicon codicon-person-add"></i> Criar conta
+                </button>
+            </form>
+
+            <div class="auth-loading hidden" id="auth-loading">
+                <i class="codicon codicon-loading codicon-modifier-spin"></i>
+                <span>Processando...</span>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-client.js"></script>
+    <script src="data-store.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

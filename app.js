@@ -104,33 +104,181 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================================================
-// PROJETOS
+// AUTH BOOTSTRAP
 // ============================================================
-function loadProjects() {
-    return JSON.parse(localStorage.getItem('cc-projects') || '["Projeto 1"]');
-}
-function saveProjects(projects) {
-    localStorage.setItem('cc-projects', JSON.stringify(projects));
-}
-function getActiveProject() {
-    return localStorage.getItem('cc-active-project') || loadProjects()[0];
-}
-function setActiveProject(name) {
-    localStorage.setItem('cc-active-project', name);
-}
-function getProjectKey(name) {
-    return `cc-points-${name}`;
-}
+// Esconde o app ate a sessao Supabase ser resolvida.
+(function () {
+    function hideAppShowAuth() {
+        const app = document.getElementById('app');
+        const auth = document.getElementById('auth-screen');
+        if (app) app.classList.add('hidden');
+        if (auth) auth.classList.remove('hidden');
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hideAppShowAuth);
+    } else {
+        hideAppShowAuth();
+    }
+})();
 
-let projects = loadProjects();
-let activeProject = getActiveProject();
-if (!projects.includes(activeProject)) { activeProject = projects[0]; setActiveProject(activeProject); }
+document.addEventListener('DOMContentLoaded', async () => {
+    const appEl = document.getElementById('app');
+    const authScreen = document.getElementById('auth-screen');
+    const userPill = document.getElementById('user-pill');
+    const userPillName = document.getElementById('user-pill-name');
+    const btnLogout = document.getElementById('btn-logout');
+
+    const tabSignin = document.querySelector('.auth-tab[data-tab="signin"]');
+    const tabSignup = document.querySelector('.auth-tab[data-tab="signup"]');
+    const formSignin = document.getElementById('auth-form-signin');
+    const formSignup = document.getElementById('auth-form-signup');
+    const loadingEl = document.getElementById('auth-loading');
+
+    const btnSignin = document.getElementById('btn-signin');
+    const btnSignup = document.getElementById('btn-signup');
+    const btnForgot = document.getElementById('btn-forgot');
+    const signinError = document.getElementById('signin-error');
+    const signupError = document.getElementById('signup-error');
+    const signupInfo = document.getElementById('signup-info');
+
+    function showError(el, msg) {
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('visible', !!msg);
+    }
+    function showInfo(el, msg) {
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('visible', !!msg);
+    }
+    function setLoading(on) {
+        loadingEl?.classList.toggle('hidden', !on);
+        [btnSignin, btnSignup].forEach((b) => b && (b.disabled = on));
+    }
+    function switchTab(name) {
+        tabSignin?.classList.toggle('active', name === 'signin');
+        tabSignup?.classList.toggle('active', name === 'signup');
+        formSignin?.classList.toggle('hidden', name !== 'signin');
+        formSignup?.classList.toggle('hidden', name !== 'signup');
+        showError(signinError, '');
+        showError(signupError, '');
+        showInfo(signupInfo, '');
+    }
+    tabSignin?.addEventListener('click', () => switchTab('signin'));
+    tabSignup?.addEventListener('click', () => switchTab('signup'));
+
+    formSignin?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        showError(signinError, '');
+        const email = document.getElementById('signin-email').value;
+        const password = document.getElementById('signin-password').value;
+        setLoading(true);
+        try {
+            await window.cc.auth.signIn(email, password);
+        } catch (err) {
+            const msg = (err?.message || '').toLowerCase();
+            if (msg.includes('invalid login')) showError(signinError, 'Email ou senha incorretos.');
+            else if (msg.includes('not confirmed')) showError(signinError, 'Confirme seu email antes de entrar.');
+            else showError(signinError, err.message || 'Falha no login');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    formSignup?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        showError(signupError, '');
+        showInfo(signupInfo, '');
+        const name = document.getElementById('signup-name').value;
+        const email = document.getElementById('signup-email').value;
+        const password = document.getElementById('signup-password').value;
+        setLoading(true);
+        try {
+            const result = await window.cc.auth.signUp(email, password, name);
+            if (!result.session) {
+                showInfo(signupInfo, 'Conta criada. Verifique seu email para confirmar antes de entrar.');
+                switchTab('signin');
+            }
+        } catch (err) {
+            const msg = (err?.message || '').toLowerCase();
+            if (msg.includes('already registered') || msg.includes('already been registered')) {
+                showError(signupError, 'Este email ja esta cadastrado. Tente entrar.');
+            } else {
+                showError(signupError, err.message || 'Falha no cadastro');
+            }
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    btnForgot?.addEventListener('click', async () => {
+        const email = document.getElementById('signin-email').value;
+        if (!email) {
+            showError(signinError, 'Digite seu email primeiro para recuperar a senha.');
+            return;
+        }
+        setLoading(true);
+        try {
+            await window.cc.auth.resetPassword(email);
+            alert('Se o email existir, voce recebera instrucoes para redefinir sua senha.');
+        } catch (err) {
+            showError(signinError, err.message || 'Falha ao enviar email');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    btnLogout?.addEventListener('click', async () => {
+        if (!confirm('Sair da sua conta?')) return;
+        try {
+            await window.cc.auth.signOut();
+        } catch (err) {
+            alert('Falha ao sair: ' + (err.message || err));
+        }
+    });
+
+    function applyAuthState(session) {
+        if (session) {
+            authScreen?.classList.add('hidden');
+            appEl?.classList.remove('hidden');
+            userPill?.classList.remove('hidden');
+            const u = session.user;
+            const name = u.user_metadata?.display_name || u.email || 'Usuario';
+            if (userPillName) userPillName.textContent = name;
+            // Leaflet pode ter sido criado com container oculto
+            setTimeout(() => {
+                if (window.cc?.map?.invalidateSize) window.cc.map.invalidateSize();
+            }, 100);
+            window.dispatchEvent(new CustomEvent('cc:authed', { detail: { user: u } }));
+        } else {
+            appEl?.classList.add('hidden');
+            authScreen?.classList.remove('hidden');
+            userPill?.classList.add('hidden');
+            switchTab('signin');
+            formSignin?.reset();
+            formSignup?.reset();
+            window.dispatchEvent(new CustomEvent('cc:signedout'));
+        }
+    }
+
+    if (!window.cc?.auth) {
+        console.error('[cc] Supabase nao inicializou. Verifique conexao e a tag do SDK.');
+        return;
+    }
+    const session = await window.cc.auth.init();
+    window.cc.auth.onAuthChange(applyAuthState);
+    applyAuthState(session);
+});
 
 // ============================================================
 // ESTADO
 // ============================================================
+// state.projects e state.project sao carregados apos auth (cc:authed).
 const state = {
-    points: JSON.parse(localStorage.getItem(getProjectKey(activeProject)) || '[]'),
+    points: [],
+    project: null,      // { id, name, owner_id, ... }
+    projects: [],       // [{ id, name, ... }]
+    myRole: null,       // 'admin' | 'collaborator' | 'viewer'
     tracking: false,
     watchId: null,
     currentLat: null,
@@ -139,10 +287,16 @@ const state = {
     measurePoints: [],
 };
 
+function currentProjectName() {
+    return state.project?.name || 'projeto';
+}
+
 // ============================================================
 // MAPA
 // ============================================================
 const map = L.map('map').setView([-12.5, 18.5], 6); // Angola
+window.cc = window.cc || {};
+window.cc.map = map;
 
 const tileDark = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap', maxZoom: 19,
@@ -194,79 +348,123 @@ btnTheme.addEventListener('click', () => {
 });
 
 // ============================================================
-// PROJETOS UI
+// PROJETOS UI (Supabase-backed)
 // ============================================================
 function renderProjectSelect() {
     projectSelect.innerHTML = '';
-    projects.forEach((p) => {
+    if (!state.projects.length) {
         const opt = document.createElement('option');
-        opt.value = p; opt.textContent = p;
-        if (p === activeProject) opt.selected = true;
+        opt.value = ''; opt.textContent = '(sem projetos)';
+        projectSelect.appendChild(opt);
+        return;
+    }
+    state.projects.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.name;
+        if (state.project && p.id === state.project.id) opt.selected = true;
         projectSelect.appendChild(opt);
     });
 }
 
-projectSelect.addEventListener('change', () => {
-    activeProject = projectSelect.value;
-    setActiveProject(activeProject);
-    state.points = JSON.parse(localStorage.getItem(getProjectKey(activeProject)) || '[]');
+async function switchToProject(projectId, opts = {}) {
+    const proj = state.projects.find((p) => p.id === projectId);
+    if (!proj) return;
+    state.project = proj;
+    window.cc.store.setActiveProjectId(proj.id);
     elevationCache = {};
     elevationData = [];
+    state.points = await window.cc.store.listPoints(proj.id);
+    state.myRole = await window.cc.store.getMyRole(proj.id);
+    updateRoleUI();
+    renderProjectSelect();
     renderAll();
-    fitBounds();
+    if (opts.fit !== false) fitBounds();
+}
+
+async function refreshProjectsList() {
+    state.projects = await window.cc.store.listProjects();
+    renderProjectSelect();
+}
+
+projectSelect.addEventListener('change', async () => {
+    const id = projectSelect.value;
+    if (!id) return;
+    await switchToProject(id);
 });
 
-btnNewProject.addEventListener('click', () => {
+btnNewProject.addEventListener('click', async () => {
     const name = prompt('Nome do novo projeto:');
     if (!name || !name.trim()) return;
     const trimmed = name.trim();
-    if (projects.includes(trimmed)) { alert('Projeto ja existe.'); return; }
-    projects.push(trimmed);
-    saveProjects(projects);
-    activeProject = trimmed;
-    setActiveProject(activeProject);
-    state.points = [];
-    savePoints();
-    elevationCache = {};
-    elevationData = [];
-    renderProjectSelect();
-    renderAll();
+    if (state.projects.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
+        alert('Projeto ja existe.');
+        return;
+    }
+    try {
+        const proj = await window.cc.store.createProject(trimmed);
+        state.projects.push(proj);
+        await switchToProject(proj.id, { fit: false });
+    } catch (err) {
+        alert('Erro ao criar projeto: ' + (err.message || err));
+    }
 });
 
-btnRenameProject.addEventListener('click', () => {
-    const name = prompt('Novo nome:', activeProject);
-    if (!name || !name.trim() || name.trim() === activeProject) return;
-    const trimmed = name.trim();
-    if (projects.includes(trimmed)) { alert('Nome ja existe.'); return; }
-    const oldKey = getProjectKey(activeProject);
-    const data = localStorage.getItem(oldKey);
-    const idx = projects.indexOf(activeProject);
-    projects[idx] = trimmed;
-    saveProjects(projects);
-    localStorage.removeItem(oldKey);
-    activeProject = trimmed;
-    setActiveProject(activeProject);
-    localStorage.setItem(getProjectKey(activeProject), data || '[]');
-    renderProjectSelect();
+btnRenameProject.addEventListener('click', async () => {
+    if (!state.project) return;
+    if (state.myRole && state.myRole !== 'admin') {
+        alert('Apenas administradores podem renomear o projeto.');
+        return;
+    }
+    const newName = prompt('Novo nome:', state.project.name);
+    if (!newName || !newName.trim() || newName.trim() === state.project.name) return;
+    const trimmed = newName.trim();
+    if (state.projects.some((p) => p.id !== state.project.id && p.name.toLowerCase() === trimmed.toLowerCase())) {
+        alert('Ja existe outro projeto com esse nome.');
+        return;
+    }
+    try {
+        await window.cc.store.renameProject(state.project.id, trimmed);
+        state.project.name = trimmed;
+        const inList = state.projects.find((p) => p.id === state.project.id);
+        if (inList) inList.name = trimmed;
+        renderProjectSelect();
+    } catch (err) {
+        alert('Erro ao renomear: ' + (err.message || err));
+    }
 });
 
-btnDeleteProject.addEventListener('click', () => {
-    if (projects.length <= 1) { alert('Deve haver pelo menos 1 projeto.'); return; }
-    if (!confirm(`Excluir projeto "${activeProject}" e todos os seus pontos?`)) return;
-    localStorage.removeItem(getProjectKey(activeProject));
-    projects = projects.filter((p) => p !== activeProject);
-    saveProjects(projects);
-    activeProject = projects[0];
-    setActiveProject(activeProject);
-    state.points = JSON.parse(localStorage.getItem(getProjectKey(activeProject)) || '[]');
-    elevationCache = {};
-    elevationData = [];
-    renderProjectSelect();
-    renderAll();
-    fitBounds();
+btnDeleteProject.addEventListener('click', async () => {
+    if (!state.project) return;
+    if (state.myRole && state.myRole !== 'admin') {
+        alert('Apenas administradores podem excluir o projeto.');
+        return;
+    }
+    if (state.projects.length <= 1) { alert('Deve haver pelo menos 1 projeto.'); return; }
+    if (!confirm(`Excluir projeto "${state.project.name}" e todos os seus pontos?`)) return;
+    try {
+        const idToDelete = state.project.id;
+        await window.cc.store.deleteProject(idToDelete);
+        state.projects = state.projects.filter((p) => p.id !== idToDelete);
+        const next = state.projects[0];
+        if (next) await switchToProject(next.id);
+        else { state.project = null; state.points = []; renderProjectSelect(); renderAll(); }
+    } catch (err) {
+        alert('Erro ao excluir: ' + (err.message || err));
+    }
 });
 
-renderProjectSelect();
+function updateRoleUI() {
+    const isAdmin = state.myRole === 'admin';
+    const canEdit = state.myRole === 'admin' || state.myRole === 'collaborator';
+    // Botoes de admin
+    btnRenameProject.style.display = isAdmin ? '' : 'none';
+    btnDeleteProject.style.display = isAdmin ? '' : 'none';
+    // Botoes de edicao (collaborator e acima)
+    btnAdd.disabled = !canEdit;
+    btnTrack.disabled = !canEdit;
+    btnClear.disabled = !canEdit;
+    btnImport.disabled = !canEdit;
+}
 
 // ============================================================
 // COORDENADAS DISPLAY
@@ -489,42 +687,54 @@ inputLabel.addEventListener('keydown', (e) => {
 });
 
 // ============================================================
-// PONTOS CRUD
+// PONTOS CRUD (via store)
 // ============================================================
-function addPoint(lat, lng, meta) {
-    state.points.push({
-        lat, lng,
-        label: meta?.label || '',
-        category: meta?.category || '',
-        color: meta?.color || '#4ec9b0',
-        photo: meta?.photo || '',
-        timestamp: new Date().toISOString(),
-    });
-    savePoints();
-    renderAll();
+async function addPoint(lat, lng, meta) {
+    if (!state.project) { alert('Crie ou selecione um projeto primeiro.'); return; }
+    if (state.myRole === 'viewer') { alert('Voce e visualizador neste projeto, nao pode adicionar pontos.'); return; }
+    try {
+        const newPoint = await window.cc.store.createPoint(state.project.id, {
+            lat, lng,
+            label: meta?.label || '',
+            category: meta?.category || '',
+            color: meta?.color || '#4ec9b0',
+            photo: meta?.photo || '',
+        }, state.points.length);
+        state.points.push(newPoint);
+        renderAll();
+    } catch (err) {
+        alert('Erro ao salvar ponto: ' + (err.message || err));
+    }
 }
 
 function addPointWithLabel(lat, lng) {
     openLabelModal(lat, lng, (meta) => addPoint(lat, lng, meta));
 }
 
-function editPoint(index) {
+async function editPoint(index) {
     const p = state.points[index];
-    openLabelModal(p.lat, p.lng, (meta) => {
-        Object.assign(state.points[index], meta);
-        savePoints();
-        renderAll();
+    if (!p) return;
+    openLabelModal(p.lat, p.lng, async (meta) => {
+        try {
+            await window.cc.store.updatePoint(p.id, state.project.id, meta);
+            Object.assign(state.points[index], meta);
+            renderAll();
+        } catch (err) {
+            alert('Erro ao atualizar ponto: ' + (err.message || err));
+        }
     }, p);
 }
 
-function removePoint(index) {
+async function removePoint(index) {
+    const p = state.points[index];
+    if (!p) return;
     state.points.splice(index, 1);
-    savePoints();
     renderAll();
-}
-
-function savePoints() {
-    localStorage.setItem(getProjectKey(activeProject), JSON.stringify(state.points));
+    try {
+        await window.cc.store.deletePoint(p.id, state.project.id);
+    } catch (err) {
+        alert('Erro ao remover ponto: ' + (err.message || err));
+    }
 }
 
 // ============================================================
@@ -868,10 +1078,17 @@ searchInput.addEventListener('keydown', (e) => {
 // ============================================================
 // EXPORTAR (JSON / GPX / KML)
 // ============================================================
-function clearPoints() {
+async function clearPoints() {
     if (state.points.length === 0) return;
+    if (!state.project) return;
+    if (state.myRole === 'viewer') { alert('Voce e visualizador, nao pode limpar pontos.'); return; }
     if (!confirm('Limpar todos os pontos do projeto atual?')) return;
-    state.points = []; savePoints(); renderAll();
+    state.points = []; renderAll();
+    try {
+        await window.cc.store.clearPoints(state.project.id);
+    } catch (err) {
+        alert('Erro ao limpar pontos: ' + (err.message || err));
+    }
 }
 
 btnExport.addEventListener('click', () => {
@@ -885,7 +1102,7 @@ exportOverlay.addEventListener('click', (e) => { if (e.target === exportOverlay)
 document.querySelectorAll('.export-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
         const fmt = btn.dataset.format;
-        const prefix = `copia-colect-${activeProject.replace(/\s+/g,'-')}-${new Date().toISOString().slice(0,10)}`;
+        const prefix = `copia-colect-${currentProjectName().replace(/\s+/g,'-')}-${new Date().toISOString().slice(0,10)}`;
         let content, mime, ext;
 
         if (fmt === 'json') {
@@ -901,7 +1118,7 @@ document.querySelectorAll('.export-btn').forEach((btn) => {
                 const el = elevationData[state.points.indexOf(p)];
                 return `      <trkpt lat="${p.lat}" lon="${p.lng}">${el != null ? `<ele>${el}</ele>` : ''}</trkpt>`;
             }).join('\n');
-            content = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CopiaColect">\n${wpts}\n  <trk>\n    <name>${escXml(activeProject)}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>\n</gpx>`;
+            content = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CopiaColect">\n${wpts}\n  <trk>\n    <name>${escXml(currentProjectName())}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>\n</gpx>`;
             mime = 'application/gpx+xml'; ext = 'gpx';
         } else if (fmt === 'kml') {
             const pms = state.points.map((p, i) => {
@@ -910,7 +1127,7 @@ document.querySelectorAll('.export-btn').forEach((btn) => {
                 return `    <Placemark>\n      <name>${escXml(name)}</name>\n      <Point><coordinates>${p.lng},${p.lat}${el != null ? `,${el}` : ''}</coordinates></Point>\n    </Placemark>`;
             }).join('\n');
             const coords = state.points.map((p) => `${p.lng},${p.lat},0`).join(' ');
-            content = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n    <name>${escXml(activeProject)}</name>\n${pms}\n    <Placemark>\n      <name>Trajeto</name>\n      <LineString><coordinates>${coords}</coordinates></LineString>\n    </Placemark>\n  </Document>\n</kml>`;
+            content = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n    <name>${escXml(currentProjectName())}</name>\n${pms}\n    <Placemark>\n      <name>Trajeto</name>\n      <LineString><coordinates>${coords}</coordinates></LineString>\n    </Placemark>\n  </Document>\n</kml>`;
             mime = 'application/vnd.google-earth.kml+xml'; ext = 'kml';
         }
 
@@ -932,17 +1149,20 @@ function downloadFile(content, name, mime) {
 // IMPORTAR
 // ============================================================
 function importFile(file) {
+    if (!state.project) { alert('Selecione um projeto primeiro.'); return; }
+    if (state.myRole === 'viewer') { alert('Voce e visualizador, nao pode importar.'); return; }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         const text = e.target.result;
         const ext = file.name.split('.').pop().toLowerCase();
+        const incoming = [];
         try {
             if (ext === 'json') {
                 const data = JSON.parse(text);
                 if (!Array.isArray(data)) throw new Error('Invalid');
                 data.forEach((p) => {
                     if (typeof p.lat === 'number' && typeof p.lng === 'number') {
-                        state.points.push({ lat: p.lat, lng: p.lng, label: p.label||'', category: p.category||'', color: p.color||'#4ec9b0', photo: p.photo||'', timestamp: p.timestamp || new Date().toISOString() });
+                        incoming.push({ lat: p.lat, lng: p.lng, label: p.label||'', category: p.category||'', color: p.color||'#4ec9b0', photo: p.photo||'' });
                     }
                 });
             } else if (ext === 'gpx') {
@@ -950,9 +1170,7 @@ function importFile(file) {
                 doc.querySelectorAll('wpt, trkpt, rtept').forEach((el) => {
                     const lat = parseFloat(el.getAttribute('lat')), lng = parseFloat(el.getAttribute('lon'));
                     const name = el.querySelector('name')?.textContent || '';
-                    if (!isNaN(lat) && !isNaN(lng)) {
-                        state.points.push({ lat, lng, label: name, category: '', color: '#4ec9b0', photo: '', timestamp: new Date().toISOString() });
-                    }
+                    if (!isNaN(lat) && !isNaN(lng)) incoming.push({ lat, lng, label: name });
                 });
             } else if (ext === 'kml') {
                 const parser = new DOMParser(), doc = parser.parseFromString(text, 'text/xml');
@@ -961,15 +1179,16 @@ function importFile(file) {
                     if (coords) {
                         const [lng, lat] = coords.split(',').map(Number);
                         const name = pm.querySelector('name')?.textContent || '';
-                        if (!isNaN(lat) && !isNaN(lng)) {
-                            state.points.push({ lat, lng, label: name, category: '', color: '#4ec9b0', photo: '', timestamp: new Date().toISOString() });
-                        }
+                        if (!isNaN(lat) && !isNaN(lng)) incoming.push({ lat, lng, label: name });
                     }
                 });
             }
-            savePoints(); renderAll(); fitBounds();
-            alert('Importacao concluida!');
-        } catch { alert('Erro ao importar arquivo.'); }
+            if (!incoming.length) { alert('Nenhum ponto valido no arquivo.'); return; }
+            const created = await window.cc.store.bulkCreatePoints(state.project.id, incoming, state.points.length);
+            state.points.push(...created);
+            renderAll(); fitBounds();
+            alert(`Importacao concluida: ${created.length} pontos.`);
+        } catch (err) { alert('Erro ao importar: ' + (err.message || err)); }
     };
     reader.readAsText(file);
 }
@@ -985,7 +1204,7 @@ btnShare.addEventListener('click', () => {
     const url = `${location.origin}${location.pathname}#share=${encoded}`;
 
     if (navigator.share) {
-        navigator.share({ title: `Copia Colect - ${activeProject}`, url }).catch(() => {});
+        navigator.share({ title: `Copia Colect - ${currentProjectName()}`, url }).catch(() => {});
     } else if (navigator.clipboard) {
         navigator.clipboard.writeText(url).then(() => alert('Link copiado!')).catch(() => alert('Nao foi possivel copiar.'));
     } else {
@@ -994,23 +1213,27 @@ btnShare.addEventListener('click', () => {
 });
 
 // Load shared data from URL hash
-function loadFromHash() {
+async function loadFromHash() {
     const hash = location.hash;
     if (!hash.startsWith('#share=')) return;
+    if (!state.project) return;
+    if (state.myRole === 'viewer') return;
     try {
         const decoded = new TextDecoder().decode(Uint8Array.from(atob(hash.slice(7)), (c) => c.charCodeAt(0)));
         const entries = decoded.split(';');
+        const incoming = [];
         entries.forEach((entry) => {
             const parts = entry.split(',');
             const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
             const label = parts.slice(2).join(',') || '';
-            if (!isNaN(lat) && !isNaN(lng)) {
-                state.points.push({ lat, lng, label, category: '', color: '#4ec9b0', photo: '', timestamp: new Date().toISOString() });
-            }
+            if (!isNaN(lat) && !isNaN(lng)) incoming.push({ lat, lng, label });
         });
-        savePoints(); renderAll(); fitBounds();
+        if (!incoming.length) { location.hash = ''; return; }
+        const created = await window.cc.store.bulkCreatePoints(state.project.id, incoming, state.points.length);
+        state.points.push(...created);
+        renderAll(); fitBounds();
         location.hash = '';
-    } catch {}
+    } catch (e) { console.warn('loadFromHash failed', e); }
 }
 
 // ============================================================
@@ -1027,8 +1250,255 @@ btnImport.addEventListener('click', () => fileImport.click());
 fileImport.addEventListener('change', (e) => { if (e.target.files[0]) { importFile(e.target.files[0]); e.target.value = ''; } });
 
 // ============================================================
-// INICIALIZACAO
+// SYNC INDICATOR
 // ============================================================
-loadFromHash();
-renderAll();
-fitBounds();
+const syncIndicator = $('sync-indicator');
+const syncCount = $('sync-count');
+
+function updateSyncIndicator() {
+    const n = window.cc.store.pendingCount();
+    if (n > 0) {
+        syncIndicator?.classList.remove('hidden');
+        if (syncCount) syncCount.textContent = String(n);
+    } else {
+        syncIndicator?.classList.add('hidden');
+    }
+}
+
+window.cc.store.onChange((e) => {
+    if (e.type === 'pending' || e.type === 'sync-end') {
+        updateSyncIndicator();
+    }
+    if (e.type === 'sync-start') {
+        syncIndicator?.classList.add('syncing');
+    }
+    if (e.type === 'sync-end') {
+        syncIndicator?.classList.remove('syncing');
+        // Recarrega projeto atual apos sync para refletir IDs reais
+        if (e.detail?.synced > 0 && state.project) {
+            window.cc.store.listPoints(state.project.id).then((pts) => {
+                state.points = pts;
+                renderAll();
+            }).catch(() => {});
+        }
+    }
+});
+
+window.addEventListener('online', () => {
+    window.cc.store.syncPending().catch(() => {});
+});
+
+// ============================================================
+// DASHBOARD (membros + estatisticas + convites)
+// ============================================================
+const dashboardOverlay = $('dashboard-overlay');
+const btnDashboard = $('btn-dashboard');
+const btnDashboardClose = $('dashboard-close');
+const dashProjectName = $('dashboard-project-name');
+const dashMyRole = $('dashboard-my-role');
+const dashTotalPoints = $('dash-total-points');
+const dashContributors = $('dash-contributors');
+const dashMembersCount = $('dash-members-count');
+const dashLastPoint = $('dash-last-point');
+const dashMembersList = $('dashboard-members-list');
+const dashInviteSection = $('dashboard-invite-section');
+const inviteForm = $('invite-form');
+const inviteEmail = $('invite-email');
+const inviteRole = $('invite-role');
+const inviteFeedback = $('invite-feedback');
+
+const ROLE_LABEL = { admin: 'Administrador', collaborator: 'Colaborador', viewer: 'Visualizador' };
+
+function roleBadge(role) {
+    return `<span class="role-badge role-${role}">${ROLE_LABEL[role] || role}</span>`;
+}
+
+function formatRelative(iso) {
+    if (!iso) return 'Nunca';
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'Agora';
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} h`;
+    const dd = Math.floor(h / 24);
+    if (dd < 30) return `${dd} d`;
+    return d.toLocaleDateString('pt-BR');
+}
+
+async function openDashboard() {
+    if (!state.project) { alert('Selecione um projeto primeiro.'); return; }
+    dashProjectName.textContent = state.project.name;
+    dashMyRole.outerHTML = `<span id="dashboard-my-role" class="role-badge role-${state.myRole || 'viewer'}">${ROLE_LABEL[state.myRole] || '...'}</span>`;
+    dashTotalPoints.textContent = '--';
+    dashContributors.textContent = '--';
+    dashMembersCount.textContent = '--';
+    dashLastPoint.textContent = '--';
+    dashMembersList.innerHTML = '<div class="members-empty">Carregando...</div>';
+    inviteFeedback.textContent = '';
+    inviteFeedback.className = 'invite-feedback';
+
+    dashInviteSection.classList.toggle('hidden', state.myRole !== 'admin');
+    dashboardOverlay.classList.remove('hidden');
+
+    try {
+        const [stats, members] = await Promise.all([
+            window.cc.store.getDashboard(state.project.id),
+            window.cc.store.listMembers(state.project.id),
+        ]);
+        if (stats) {
+            dashTotalPoints.textContent = stats.total_points ?? 0;
+            dashContributors.textContent = stats.contributors_count ?? 0;
+            dashMembersCount.textContent = stats.members_count ?? 0;
+            dashLastPoint.textContent = formatRelative(stats.last_point_at);
+        }
+        renderMembers(members);
+    } catch (err) {
+        dashMembersList.innerHTML = `<div class="members-empty">Erro: ${err.message || err}</div>`;
+    }
+}
+
+function closeDashboard() {
+    dashboardOverlay.classList.add('hidden');
+}
+
+function renderMembers(members) {
+    if (!members.length) {
+        dashMembersList.innerHTML = '<div class="members-empty">Nenhum membro.</div>';
+        return;
+    }
+    const myUserId = window.cc.auth.getUser()?.id;
+    const isAdmin = state.myRole === 'admin';
+    dashMembersList.innerHTML = '';
+    members.forEach((m) => {
+        const div = document.createElement('div');
+        div.className = 'member-item';
+        const name = m.profile.display_name || m.profile.email || '?';
+        const email = m.profile.email || '';
+        const isMe = m.user_id === myUserId;
+        let actions = '';
+        if (isAdmin && !isMe) {
+            actions = `
+                <select class="member-role-select" data-user-id="${m.user_id}">
+                    <option value="admin"${m.role === 'admin' ? ' selected' : ''}>Admin</option>
+                    <option value="collaborator"${m.role === 'collaborator' ? ' selected' : ''}>Colaborador</option>
+                    <option value="viewer"${m.role === 'viewer' ? ' selected' : ''}>Visualizador</option>
+                </select>
+                <button class="btn-remove-member" data-user-id="${m.user_id}" title="Remover do projeto"><i class="codicon codicon-trash"></i></button>
+            `;
+        } else {
+            actions = roleBadge(m.role);
+            if (isMe) actions += ' <span style="color:var(--text-dim);font-size:11px">(voce)</span>';
+        }
+        div.innerHTML = `
+            <i class="codicon codicon-account" style="color:var(--text-dim);font-size:18px"></i>
+            <div class="member-info">
+                <div class="member-name">${name}${isMe ? '' : ''}</div>
+                <div class="member-email">${email}</div>
+            </div>
+            <div class="member-actions">${actions}</div>
+        `;
+        dashMembersList.appendChild(div);
+    });
+
+    dashMembersList.querySelectorAll('.member-role-select').forEach((sel) => {
+        sel.addEventListener('change', async () => {
+            const userId = sel.dataset.userId;
+            const newRole = sel.value;
+            try {
+                await window.cc.store.updateMemberRole(state.project.id, userId, newRole);
+            } catch (err) {
+                alert('Erro: ' + (err.message || err));
+                openDashboard();
+            }
+        });
+    });
+    dashMembersList.querySelectorAll('.btn-remove-member').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const userId = btn.dataset.userId;
+            if (!confirm('Remover este membro do projeto?')) return;
+            try {
+                await window.cc.store.removeMember(state.project.id, userId);
+                openDashboard();
+            } catch (err) {
+                alert('Erro: ' + (err.message || err));
+            }
+        });
+    });
+}
+
+btnDashboard?.addEventListener('click', openDashboard);
+btnDashboardClose?.addEventListener('click', closeDashboard);
+dashboardOverlay?.addEventListener('click', (e) => {
+    if (e.target === dashboardOverlay) closeDashboard();
+});
+
+inviteForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    inviteFeedback.textContent = '';
+    inviteFeedback.className = 'invite-feedback';
+    const email = inviteEmail.value.trim();
+    const role = inviteRole.value;
+    if (!email) return;
+    try {
+        await window.cc.store.inviteMember(state.project.id, email, role);
+        inviteFeedback.textContent = `Convite enviado para ${email} como ${ROLE_LABEL[role]}.`;
+        inviteFeedback.classList.add('success');
+        inviteEmail.value = '';
+        // Recarrega lista
+        const members = await window.cc.store.listMembers(state.project.id);
+        renderMembers(members);
+    } catch (err) {
+        const msg = err.message || String(err);
+        inviteFeedback.textContent = msg.includes('nao encontrado')
+            ? 'Esta pessoa ainda nao tem conta. Peca para se cadastrar primeiro.'
+            : msg;
+        inviteFeedback.classList.add('error');
+    }
+});
+
+// ============================================================
+// INICIALIZACAO (apos auth)
+// ============================================================
+async function bootstrapApp() {
+    try {
+        state.projects = await window.cc.store.listProjects();
+
+        // Primeiro acesso: cria projeto inicial
+        if (!state.projects.length) {
+            const first = await window.cc.store.createProject('Meu Projeto');
+            state.projects = [first];
+        }
+
+        // Escolhe projeto ativo
+        const savedId = window.cc.store.getActiveProjectId();
+        const proj = state.projects.find((p) => p.id === savedId) || state.projects[0];
+        await switchToProject(proj.id, { fit: false });
+
+        updateSyncIndicator();
+        // Sync inicial caso haja ops pendentes de sessoes anteriores
+        if (navigator.onLine) window.cc.store.syncPending().catch(() => {});
+
+        await loadFromHash();
+        fitBounds();
+    } catch (err) {
+        console.error('[cc] bootstrap falhou', err);
+        alert('Erro ao carregar projetos: ' + (err.message || err));
+    }
+}
+
+window.addEventListener('cc:authed', bootstrapApp);
+
+window.addEventListener('cc:signedout', () => {
+    state.project = null;
+    state.projects = [];
+    state.points = [];
+    state.myRole = null;
+    elevationCache = {};
+    elevationData = [];
+    renderProjectSelect();
+    renderAll();
+    updateSyncIndicator();
+    dashboardOverlay?.classList.add('hidden');
+});
