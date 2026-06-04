@@ -309,6 +309,100 @@
         return localRows;
     }
 
+    // ====== POLIGONOS ======
+    async function listPolygons(projectId) {
+        try {
+            const { data, error } = await sb.from('polygons')
+                .select('*').eq('project_id', projectId)
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+            writeCache('cc-cache-polygons-' + projectId, data);
+            return data;
+        } catch (err) {
+            console.warn('[cc.store] listPolygons fallback cache:', err.message);
+            return readCache('cc-cache-polygons-' + projectId, []);
+        }
+    }
+
+    async function createPolygon(projectId, poly) {
+        const user = window.cc.auth.getUser();
+        if (!user) throw new Error('Nao autenticado');
+        const id = uuid();
+        const row = {
+            id,
+            project_id: projectId,
+            user_id: user.id,
+            name: poly.name || 'Poligono',
+            color: poly.color || '#569cd6',
+            fill_color: poly.fill_color || null,
+            fill_opacity: poly.fill_opacity ?? 0.2,
+            vertices: poly.vertices,
+            source: poly.source || 'manual',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+        const cached = readCache('cc-cache-polygons-' + projectId, []);
+        cached.push(row);
+        writeCache('cc-cache-polygons-' + projectId, cached);
+        try {
+            const { data, error } = await sb.from('polygons').insert(row).select().single();
+            if (error) throw error;
+            return data;
+        } catch (err) {
+            enqueue({ type: 'polygon.create', payload: row });
+            return row;
+        }
+    }
+
+    async function bulkCreatePolygons(projectId, polygons) {
+        const user = window.cc.auth.getUser();
+        if (!user) throw new Error('Nao autenticado');
+        const rows = polygons.map((p) => ({
+            id: uuid(),
+            project_id: projectId,
+            user_id: user.id,
+            name: p.name || 'Poligono',
+            color: p.color || '#569cd6',
+            fill_color: p.fill_color || null,
+            fill_opacity: p.fill_opacity ?? 0.2,
+            vertices: p.vertices,
+            source: p.source || 'manual',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        }));
+        const cached = readCache('cc-cache-polygons-' + projectId, []);
+        cached.push(...rows);
+        writeCache('cc-cache-polygons-' + projectId, cached);
+        try {
+            const { error } = await sb.from('polygons').insert(rows);
+            if (error) throw error;
+        } catch (err) {
+            rows.forEach((row) => enqueue({ type: 'polygon.create', payload: row }));
+        }
+        return rows;
+    }
+
+    async function deletePolygon(id, projectId) {
+        const cached = readCache('cc-cache-polygons-' + projectId, []).filter((p) => p.id !== id);
+        writeCache('cc-cache-polygons-' + projectId, cached);
+        try {
+            const { error } = await sb.from('polygons').delete().eq('id', id);
+            if (error) throw error;
+        } catch (err) {
+            enqueue({ type: 'polygon.delete', payload: { id } });
+        }
+    }
+
+    async function clearPolygons(projectId) {
+        writeCache('cc-cache-polygons-' + projectId, []);
+        try {
+            const { error } = await sb.from('polygons').delete().eq('project_id', projectId);
+            if (error) throw error;
+        } catch (err) {
+            enqueue({ type: 'polygon.clear', payload: { projectId } });
+        }
+    }
+
     // ====== MEMBROS / DASHBOARD ======
     async function listMembers(projectId) {
         const { data: members, error } = await sb.from('project_members')
@@ -461,6 +555,16 @@
                         await sb.from('points').delete()
                             .eq('project_id', op.payload.projectId).throwOnError();
                         break;
+                    case 'polygon.create':
+                        await sb.from('polygons').upsert(op.payload).throwOnError();
+                        break;
+                    case 'polygon.delete':
+                        await sb.from('polygons').delete().eq('id', op.payload.id).throwOnError();
+                        break;
+                    case 'polygon.clear':
+                        await sb.from('polygons').delete()
+                            .eq('project_id', op.payload.projectId).throwOnError();
+                        break;
                     default:
                         console.warn('[cc.store] op desconhecida:', op.type);
                         remaining.push(op);
@@ -491,6 +595,8 @@
         getActiveProjectId, setActiveProjectId,
         // points
         listPoints, createPoint, updatePoint, deletePoint, clearPoints, bulkCreatePoints,
+        // polygons
+        listPolygons, createPolygon, bulkCreatePolygons, deletePolygon, clearPolygons,
         // members / dashboard
         listMembers, inviteMember, updateMemberRole, removeMember,
         getDashboard, getMyRole,

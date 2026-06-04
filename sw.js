@@ -1,4 +1,4 @@
-const CACHE_NAME = 'copia-colect-v7';
+const CACHE_NAME = 'copia-colect-v8';
 const TILE_CACHE = 'copia-colect-tiles-v1';
 
 // Local assets (devem existir, falha bloqueia install)
@@ -19,6 +19,7 @@ const CDN_ASSETS = [
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css',
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+    'https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js',
 ];
 
 self.addEventListener('install', (event) => {

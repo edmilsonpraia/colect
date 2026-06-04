@@ -276,6 +276,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // state.projects e state.project sao carregados apos auth (cc:authed).
 const state = {
     points: [],
+    polygons: [],       // poligonos importados (shapefile, geojson, kml)
     project: null,      // { id, name, owner_id, ... }
     projects: [],       // [{ id, name, ... }]
     myRole: null,       // 'admin' | 'collaborator' | 'viewer'
@@ -303,6 +304,8 @@ const tileDark = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 });
 tileDark.addTo(map);
 
+// Ordem importa: polygonsLayer adicionado primeiro fica embaixo
+const polygonsLayer = L.layerGroup().addTo(map);
 const markersLayer = L.layerGroup().addTo(map);
 const pathLayer = L.layerGroup().addTo(map);
 const measureLayer = L.layerGroup().addTo(map);
@@ -332,6 +335,8 @@ const btnNewProject = $('btn-new-project'), btnRenameProject = $('btn-rename-pro
 const searchInput = $('search-input'), searchResults = $('search-results');
 const measureBar = $('measure-bar'), measureText = $('measure-text'), btnMeasureCancel = $('btn-measure-cancel');
 const exportOverlay = $('export-overlay'), exportCancel = $('export-cancel');
+const polygonsListEl = $('polygons-list'), polygonsContainer = $('polygons-container');
+const polygonsCount = $('polygons-count'), btnClearPolygons = $('btn-clear-polygons');
 
 // ============================================================
 // TEMA
@@ -373,8 +378,14 @@ async function switchToProject(projectId, opts = {}) {
     window.cc.store.setActiveProjectId(proj.id);
     elevationCache = {};
     elevationData = [];
-    state.points = await window.cc.store.listPoints(proj.id);
-    state.myRole = await window.cc.store.getMyRole(proj.id);
+    const [pts, polys, role] = await Promise.all([
+        window.cc.store.listPoints(proj.id),
+        window.cc.store.listPolygons(proj.id),
+        window.cc.store.getMyRole(proj.id),
+    ]);
+    state.points = pts;
+    state.polygons = polys;
+    state.myRole = role;
     updateRoleUI();
     renderProjectSelect();
     renderAll();
@@ -954,13 +965,103 @@ function renderStats() {
     pointsCount.textContent = state.points.length;
 }
 
-function renderAll() { renderMap(); renderPointsList(); renderStats(); fetchElevation(); }
+function renderPolygonsMap() {
+    polygonsLayer.clearLayers();
+    state.polygons.forEach((p) => {
+        if (!Array.isArray(p.vertices) || p.vertices.length < 2) return;
+        const latlngs = p.vertices.map((v) => [v.lat, v.lng]);
+        const fill = p.fill_color || p.color || '#569cd6';
+        const isClosed = latlngs.length >= 3;
+        const layer = isClosed
+            ? L.polygon(latlngs, {
+                color: p.color || '#569cd6', weight: 2,
+                fillColor: fill, fillOpacity: p.fill_opacity ?? 0.2,
+              })
+            : L.polyline(latlngs, {
+                color: p.color || '#569cd6', weight: 2,
+              });
+        layer.bindPopup(
+            `<b>${p.name || 'Poligono'}</b><br>` +
+            `<span style="color:#999;font-size:12px">${p.vertices.length} vertices</span>` +
+            (p.source ? `<br><small style="color:#666">Fonte: ${p.source}</small>` : '')
+        );
+        polygonsLayer.addLayer(layer);
+    });
+}
+
+function renderPolygonsList() {
+    if (!state.polygons.length) {
+        polygonsListEl.classList.add('hidden');
+        polygonsCount.textContent = '0';
+        return;
+    }
+    polygonsListEl.classList.remove('hidden');
+    polygonsCount.textContent = state.polygons.length;
+    polygonsContainer.innerHTML = '';
+    state.polygons.forEach((p, i) => {
+        const div = document.createElement('div');
+        div.className = 'polygon-item';
+        const vcount = Array.isArray(p.vertices) ? p.vertices.length : 0;
+        div.innerHTML = `
+            <span class="polygon-color-dot" style="background:${p.color || '#569cd6'}"></span>
+            <span class="polygon-name" title="${p.name || ''}">${p.name || `Poligono ${i+1}`}</span>
+            <span class="polygon-vcount">${vcount}v</span>
+            <span class="polygon-source">${p.source || 'manual'}</span>
+            <button class="btn-focus" onclick="focusPolygon(${i})" title="Focar"><i class="codicon codicon-eye"></i></button>
+            <button class="btn-remove" onclick="removePolygon(${i})" title="Excluir"><i class="codicon codicon-close"></i></button>
+        `;
+        polygonsContainer.appendChild(div);
+    });
+}
+
+function focusPolygon(index) {
+    const p = state.polygons[index];
+    if (!p || !p.vertices?.length) return;
+    const bounds = L.latLngBounds(p.vertices.map((v) => [v.lat, v.lng]));
+    map.fitBounds(bounds, { padding: [30, 30] });
+}
+
+async function removePolygon(index) {
+    const p = state.polygons[index];
+    if (!p) return;
+    if (!confirm(`Excluir poligono "${p.name || 'sem nome'}"?`)) return;
+    state.polygons.splice(index, 1);
+    renderPolygonsMap();
+    renderPolygonsList();
+    try {
+        await window.cc.store.deletePolygon(p.id, state.project.id);
+    } catch (err) {
+        alert('Erro ao excluir poligono: ' + (err.message || err));
+    }
+}
+
+btnClearPolygons?.addEventListener('click', async () => {
+    if (!state.polygons.length || !state.project) return;
+    if (!confirm(`Apagar todos os ${state.polygons.length} poligonos do projeto?`)) return;
+    state.polygons = [];
+    renderPolygonsMap();
+    renderPolygonsList();
+    try {
+        await window.cc.store.clearPolygons(state.project.id);
+    } catch (err) {
+        alert('Erro ao limpar poligonos: ' + (err.message || err));
+    }
+});
+
+function renderAll() { renderMap(); renderPolygonsMap(); renderPointsList(); renderPolygonsList(); renderStats(); fetchElevation(); }
 
 function focusPoint(index) { map.setView([state.points[index].lat, state.points[index].lng], 17); }
 
 function fitBounds() {
-    if (state.points.length > 0) {
-        map.fitBounds(L.latLngBounds(state.points.map((p) => [p.lat, p.lng])), { padding: [30, 30] });
+    const coords = [];
+    state.points.forEach((p) => coords.push([p.lat, p.lng]));
+    state.polygons.forEach((poly) => {
+        if (Array.isArray(poly.vertices)) {
+            poly.vertices.forEach((v) => coords.push([v.lat, v.lng]));
+        }
+    });
+    if (coords.length > 0) {
+        map.fitBounds(L.latLngBounds(coords), { padding: [30, 30] });
     }
 }
 
@@ -1148,49 +1249,180 @@ function downloadFile(content, name, mime) {
 // ============================================================
 // IMPORTAR
 // ============================================================
-function importFile(file) {
+function parseKmlCoordsString(s) {
+    return s.trim().split(/\s+/).map((t) => {
+        const [lng, lat] = t.split(',').map(Number);
+        return { lat, lng };
+    }).filter((v) => isFinite(v.lat) && isFinite(v.lng));
+}
+
+function extractFromGeoJSON(geojson) {
+    const features = geojson?.type === 'FeatureCollection'
+        ? (geojson.features || [])
+        : (geojson?.type === 'Feature' ? [geojson] : []);
+    const pts = [], polys = [];
+    features.forEach((feat) => {
+        const g = feat.geometry; if (!g) return;
+        const props = feat.properties || {};
+        const name = props.name || props.NAME || props.Name || props.label || props.LABEL || '';
+        const pushPoly = (coords, baseName) => {
+            const verts = (coords || []).map(([lng, lat]) => ({ lat, lng })).filter((v) => isFinite(v.lat) && isFinite(v.lng));
+            if (verts.length >= 2) polys.push({ name: baseName || `Poligono ${polys.length + 1}`, vertices: verts });
+        };
+        switch (g.type) {
+            case 'Point': {
+                const [lng, lat] = g.coordinates;
+                if (isFinite(lat) && isFinite(lng)) pts.push({ lat, lng, label: name });
+                break;
+            }
+            case 'MultiPoint':
+                (g.coordinates || []).forEach(([lng, lat]) => {
+                    if (isFinite(lat) && isFinite(lng)) pts.push({ lat, lng, label: name });
+                });
+                break;
+            case 'LineString':
+                pushPoly(g.coordinates, name || `Linha ${polys.length + 1}`);
+                break;
+            case 'MultiLineString':
+                (g.coordinates || []).forEach((line, i) => pushPoly(line, name ? `${name} ${i + 1}` : `Linha ${polys.length + 1}`));
+                break;
+            case 'Polygon':
+                // primeiro anel = anel externo
+                pushPoly((g.coordinates || [])[0], name || `Poligono ${polys.length + 1}`);
+                break;
+            case 'MultiPolygon':
+                (g.coordinates || []).forEach((poly, i) => pushPoly(poly[0], name ? `${name} ${i + 1}` : `Poligono ${polys.length + 1}`));
+                break;
+            default:
+                console.warn('GeoJSON tipo nao suportado:', g.type);
+        }
+    });
+    return { pts, polys };
+}
+
+function extractFromKML(text) {
+    const doc = new DOMParser().parseFromString(text, 'text/xml');
+    const pts = [], polys = [];
+    doc.querySelectorAll('Placemark').forEach((pm) => {
+        const name = pm.querySelector(':scope > name')?.textContent?.trim() || '';
+        // Point
+        const ptCoords = pm.querySelector('Point coordinates')?.textContent;
+        if (ptCoords) {
+            const v = parseKmlCoordsString(ptCoords)[0];
+            if (v) pts.push({ lat: v.lat, lng: v.lng, label: name });
+        }
+        // LineString
+        const lnCoords = pm.querySelector('LineString coordinates')?.textContent;
+        if (lnCoords) {
+            const verts = parseKmlCoordsString(lnCoords);
+            if (verts.length >= 2) polys.push({ name: name || `Linha ${polys.length + 1}`, vertices: verts });
+        }
+        // Polygon (anel externo)
+        const polyCoords = pm.querySelector('Polygon outerBoundaryIs LinearRing coordinates')?.textContent;
+        if (polyCoords) {
+            const verts = parseKmlCoordsString(polyCoords);
+            if (verts.length >= 3) polys.push({ name: name || `Poligono ${polys.length + 1}`, vertices: verts });
+        }
+        // MultiGeometry > Polygon
+        pm.querySelectorAll('MultiGeometry Polygon outerBoundaryIs LinearRing coordinates').forEach((el, i) => {
+            const verts = parseKmlCoordsString(el.textContent || '');
+            if (verts.length >= 3) polys.push({ name: name ? `${name} ${i + 1}` : `Poligono ${polys.length + 1}`, vertices: verts });
+        });
+    });
+    return { pts, polys };
+}
+
+async function importFile(file) {
     if (!state.project) { alert('Selecione um projeto primeiro.'); return; }
     if (state.myRole === 'viewer') { alert('Voce e visualizador, nao pode importar.'); return; }
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        const ext = file.name.split('.').pop().toLowerCase();
-        const incoming = [];
-        try {
-            if (ext === 'json') {
-                const data = JSON.parse(text);
-                if (!Array.isArray(data)) throw new Error('Invalid');
+    const ext = file.name.split('.').pop().toLowerCase();
+    let pts = [], polys = [], sourceLbl = ext;
+
+    try {
+        if (ext === 'zip') {
+            // Shapefile compactado
+            if (typeof window.shp !== 'function') {
+                alert('Biblioteca shpjs nao carregou. Verifique conexao.');
+                return;
+            }
+            const buf = await file.arrayBuffer();
+            const geojson = await window.shp(buf);
+            // shpjs pode retornar array (multiplos shp dentro do zip)
+            const layers = Array.isArray(geojson) ? geojson : [geojson];
+            layers.forEach((layer) => {
+                const r = extractFromGeoJSON(layer);
+                pts.push(...r.pts); polys.push(...r.polys);
+            });
+            sourceLbl = 'shapefile';
+        } else if (ext === 'geojson' || ext === 'json') {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (data?.type === 'FeatureCollection' || data?.type === 'Feature') {
+                const r = extractFromGeoJSON(data);
+                pts = r.pts; polys = r.polys;
+                sourceLbl = 'geojson';
+            } else if (Array.isArray(data)) {
+                // formato legado: array de pontos
                 data.forEach((p) => {
                     if (typeof p.lat === 'number' && typeof p.lng === 'number') {
-                        incoming.push({ lat: p.lat, lng: p.lng, label: p.label||'', category: p.category||'', color: p.color||'#4ec9b0', photo: p.photo||'' });
+                        pts.push({ lat: p.lat, lng: p.lng, label: p.label || '', category: p.category || '', color: p.color || '#4ec9b0', photo: p.photo || '' });
                     }
                 });
-            } else if (ext === 'gpx') {
-                const parser = new DOMParser(), doc = parser.parseFromString(text, 'text/xml');
-                doc.querySelectorAll('wpt, trkpt, rtept').forEach((el) => {
-                    const lat = parseFloat(el.getAttribute('lat')), lng = parseFloat(el.getAttribute('lon'));
-                    const name = el.querySelector('name')?.textContent || '';
-                    if (!isNaN(lat) && !isNaN(lng)) incoming.push({ lat, lng, label: name });
-                });
-            } else if (ext === 'kml') {
-                const parser = new DOMParser(), doc = parser.parseFromString(text, 'text/xml');
-                doc.querySelectorAll('Placemark').forEach((pm) => {
-                    const coords = pm.querySelector('Point coordinates')?.textContent?.trim();
-                    if (coords) {
-                        const [lng, lat] = coords.split(',').map(Number);
-                        const name = pm.querySelector('name')?.textContent || '';
-                        if (!isNaN(lat) && !isNaN(lng)) incoming.push({ lat, lng, label: name });
-                    }
-                });
+                sourceLbl = 'json';
+            } else {
+                alert('JSON nao reconhecido. Esperado FeatureCollection (GeoJSON) ou array de pontos.');
+                return;
             }
-            if (!incoming.length) { alert('Nenhum ponto valido no arquivo.'); return; }
-            const created = await window.cc.store.bulkCreatePoints(state.project.id, incoming, state.points.length);
-            state.points.push(...created);
-            renderAll(); fitBounds();
-            alert(`Importacao concluida: ${created.length} pontos.`);
-        } catch (err) { alert('Erro ao importar: ' + (err.message || err)); }
-    };
-    reader.readAsText(file);
+        } else if (ext === 'kml') {
+            const text = await file.text();
+            const r = extractFromKML(text);
+            pts = r.pts; polys = r.polys;
+            sourceLbl = 'kml';
+        } else if (ext === 'kmz') {
+            alert('KMZ ainda nao suportado neste MVP. Descompacte e importe o .kml interno.');
+            return;
+        } else if (ext === 'gpx') {
+            const text = await file.text();
+            const doc = new DOMParser().parseFromString(text, 'text/xml');
+            doc.querySelectorAll('wpt, trkpt, rtept').forEach((el) => {
+                const lat = parseFloat(el.getAttribute('lat')), lng = parseFloat(el.getAttribute('lon'));
+                const name = el.querySelector('name')?.textContent || '';
+                if (!isNaN(lat) && !isNaN(lng)) pts.push({ lat, lng, label: name });
+            });
+            // GPX trk como linha
+            doc.querySelectorAll('trk').forEach((trk, ti) => {
+                const tname = trk.querySelector(':scope > name')?.textContent || `Trajeto ${ti + 1}`;
+                const verts = [];
+                trk.querySelectorAll('trkpt').forEach((p) => {
+                    const lat = parseFloat(p.getAttribute('lat'));
+                    const lng = parseFloat(p.getAttribute('lon'));
+                    if (isFinite(lat) && isFinite(lng)) verts.push({ lat, lng });
+                });
+                if (verts.length >= 2) polys.push({ name: tname, vertices: verts });
+            });
+            sourceLbl = 'gpx';
+        } else {
+            alert('Formato nao suportado. Use: .zip (shapefile), .geojson, .json, .kml, .gpx');
+            return;
+        }
+
+        if (!pts.length && !polys.length) { alert('Nenhum dado valido encontrado no arquivo.'); return; }
+
+        polys.forEach((p) => { p.source = sourceLbl; });
+        const createdPts = pts.length
+            ? await window.cc.store.bulkCreatePoints(state.project.id, pts, state.points.length)
+            : [];
+        const createdPolys = polys.length
+            ? await window.cc.store.bulkCreatePolygons(state.project.id, polys)
+            : [];
+        state.points.push(...createdPts);
+        state.polygons.push(...createdPolys);
+        renderAll(); fitBounds();
+        alert(`Importacao: ${createdPts.length} pontos, ${createdPolys.length} poligonos.`);
+    } catch (err) {
+        console.error('Erro import:', err);
+        alert('Erro ao importar: ' + (err.message || err));
+    }
 }
 
 // ============================================================
@@ -1495,6 +1727,9 @@ const ACTION_META = {
     'point.create':       { icon: 'codicon-add', kind: 'create' },
     'point.update':       { icon: 'codicon-edit', kind: 'update' },
     'point.delete':       { icon: 'codicon-trash', kind: 'delete' },
+    'polygon.create':     { icon: 'codicon-symbol-misc', kind: 'create' },
+    'polygon.update':     { icon: 'codicon-edit', kind: 'update' },
+    'polygon.delete':     { icon: 'codicon-trash', kind: 'delete' },
     'member.added':       { icon: 'codicon-person-add', kind: 'member' },
     'member.removed':     { icon: 'codicon-close', kind: 'delete' },
     'member.role_changed':{ icon: 'codicon-shield', kind: 'member' },
@@ -1514,6 +1749,12 @@ function describeActivity(log) {
             return `<b>${actor}</b> editou ponto ${meta.label ? `<em>${meta.label}</em>` : ''}`;
         case 'point.delete':
             return `<b>${actor}</b> removeu ponto ${meta.label ? `<em>${meta.label}</em>` : ''}`;
+        case 'polygon.create':
+            return `<b>${actor}</b> importou poligono <em>${meta.name || ''}</em> (${meta.vertices_count || 0} vertices${meta.source ? `, ${meta.source}` : ''})`;
+        case 'polygon.update':
+            return `<b>${actor}</b> editou poligono <em>${meta.name || ''}</em>`;
+        case 'polygon.delete':
+            return `<b>${actor}</b> removeu poligono <em>${meta.name || ''}</em>`;
         case 'member.added':
             return `<b>${actor}</b> adicionou <b>${affected}</b> como <em>${roleLbl(meta.role)}</em>`;
         case 'member.removed':
@@ -2138,6 +2379,7 @@ window.addEventListener('cc:signedout', () => {
     state.project = null;
     state.projects = [];
     state.points = [];
+    state.polygons = [];
     state.myRole = null;
     elevationCache = {};
     elevationData = [];

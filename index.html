@@ -108,12 +108,20 @@
                     <i class="codicon codicon-cloud-upload"></i><span>Importar</span>
                 </button>
             </div>
-            <input type="file" id="file-import" accept=".json,.kml,.gpx" style="display:none" />
+            <input type="file" id="file-import" accept=".json,.geojson,.kml,.kmz,.gpx,.zip" style="display:none" />
         </div>
 
         <div id="points-list">
             <h3><i class="codicon codicon-list-unordered"></i> Pontos Coletados (<span id="points-count">0</span>)</h3>
             <div id="points-container"></div>
+        </div>
+
+        <div id="polygons-list" class="polygons-list hidden">
+            <div class="polygons-list-header">
+                <h3><i class="codicon codicon-symbol-misc"></i> Poligonos Importados (<span id="polygons-count">0</span>)</h3>
+                <button id="btn-clear-polygons" class="btn-icon-sm" title="Apagar todos os poligonos"><i class="codicon codicon-trash"></i></button>
+            </div>
+            <div id="polygons-container"></div>
         </div>
 
         <!-- Modal de legenda com cor e foto -->
@@ -322,6 +330,7 @@
                                 <select id="activity-filter-type" class="modal-select">
                                     <option value="">Todas as acoes</option>
                                     <option value="point">Pontos</option>
+                                    <option value="polygon">Poligonos</option>
                                     <option value="member">Membros</option>
                                     <option value="project">Projeto</option>
                                 </select>
@@ -513,6 +522,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js"></script>
     <script src="supabase-client.js"></script>
     <script src="data-store.js"></script>
     <script src="app.js"></script>
