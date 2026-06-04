@@ -881,6 +881,174 @@ body.has-offline-banner { padding-top: 28px; }
     .dashboard-tab { padding: 9px 10px; font-size: 11px; }
 }
 
+/* ============================================================
+   CAMERA MEASURE MODAL
+   ============================================================ */
+.cmeasure-modal {
+    max-width: 720px; width: 100%;
+    max-height: 95vh; overflow-y: auto;
+}
+.cmeasure-section { padding: 12px 14px; }
+.cmeasure-section.hidden { display: none; }
+
+.cmeasure-tip {
+    font-size: 13px; color: var(--text);
+    background: var(--bg3); padding: 10px 12px;
+    border-radius: 5px; border-left: 3px solid var(--accent);
+    margin-bottom: 14px; line-height: 1.4;
+}
+.cmeasure-btn-big {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 6px;
+    padding: 14px; font-size: 15px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+    transition: background 0.15s;
+}
+.cmeasure-btn-big:hover { background: var(--accent-hover); }
+.cmeasure-btn-big .codicon { font-size: 18px; }
+
+.cmeasure-toolbar {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.cmeasure-label {
+    display: flex; flex-direction: column; gap: 3px;
+    flex: 1; min-width: 140px;
+    font-size: 11px; color: var(--text-dim); font-weight: 500;
+}
+.cmeasure-label.hidden { display: none; }
+.cmeasure-label select, .cmeasure-label input { margin: 0; }
+
+.cmeasure-instructions {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(86, 156, 214, 0.1);
+    border: 1px solid rgba(86, 156, 214, 0.3);
+    color: var(--blue);
+    padding: 8px 12px; border-radius: 5px;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+.cmeasure-instructions .codicon { font-size: 14px; flex-shrink: 0; }
+.cmeasure-instructions.ready {
+    background: rgba(78, 201, 176, 0.1);
+    border-color: rgba(78, 201, 176, 0.3);
+    color: var(--green);
+}
+
+.cmeasure-canvas-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    position: relative;
+    max-height: 60vh;
+    display: flex; align-items: center; justify-content: center;
+}
+#cmeasure-canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 60vh;
+    height: auto;
+    touch-action: none;
+    cursor: crosshair;
+}
+.cmeasure-canvas-wrap.empty {
+    min-height: 200px;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.cmeasure-actions {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.cmeasure-actions .modal-btn {
+    flex: 1; min-width: 100px;
+    padding: 8px 10px; font-size: 12px;
+}
+
+.cmeasure-results {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    min-height: 42px;
+}
+.cmeasure-results.empty {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    font-style: italic;
+}
+.cmeasure-result-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0;
+    font-size: 13px;
+    color: var(--text2);
+}
+.cmeasure-result-row.total {
+    border-top: 1px solid var(--border2);
+    margin-top: 4px; padding-top: 6px;
+    font-weight: 600;
+}
+.cmeasure-result-row .seg-label {
+    color: var(--text-dim); font-size: 12px;
+}
+.cmeasure-result-row .seg-value {
+    color: var(--green); font-weight: 600;
+    font-family: 'Consolas', monospace;
+}
+
+/* Volume calc */
+.cmeasure-volume {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 10px 12px;
+}
+.cmeasure-volume h5 {
+    font-size: 11px; font-weight: 600;
+    color: var(--text-dim); text-transform: uppercase;
+    margin-bottom: 8px;
+    display: inline-flex; align-items: center; gap: 5px;
+}
+.cmeasure-volume-row {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.cmeasure-volume-row:last-child { margin-bottom: 0; }
+.cmeasure-volume-row input.modal-input {
+    flex: 1; min-width: 70px;
+    margin: 0; padding: 6px 8px;
+    font-size: 13px; text-align: center;
+}
+.cmeasure-volume-row select.modal-select {
+    margin: 0; padding: 6px 8px;
+    font-size: 13px;
+}
+.cmeasure-volume-row > span {
+    color: var(--text-dim); font-size: 14px;
+}
+.cmv-result {
+    flex: 1; text-align: right;
+    color: var(--green);
+    font-family: 'Consolas', monospace;
+    font-size: 14px; font-weight: 600;
+}
+#cmv-from-measure {
+    flex: 0; padding: 6px 10px; font-size: 11px;
+}
+
+@media (max-width: 500px) {
+    .cmeasure-volume-row { gap: 3px; }
+    .cmeasure-volume-row input.modal-input { font-size: 12px; min-width: 50px; }
+}
+
 /* User pill in header */
 .user-pill {
     display: inline-flex; align-items: center; gap: 6px;

@@ -92,6 +92,9 @@
                 <button id="btn-measure" title="Medir distancia entre pontos">
                     <i class="codicon codicon-ruler"></i><span>Medir</span>
                 </button>
+                <button id="btn-camera-measure" title="Medir tamanho real com camera">
+                    <i class="codicon codicon-device-camera"></i><span>Medir Foto</span>
+                </button>
             </div>
 
             <div class="buttons secondary">
@@ -326,6 +329,83 @@
                         </div>
                         <div id="activity-list" class="activity-list">
                             <div class="activity-empty">Carregando...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera Measure modal -->
+        <div id="cmeasure-overlay" class="modal-overlay hidden">
+            <div class="modal cmeasure-modal">
+                <div class="modal-header">
+                    <i class="codicon codicon-device-camera"></i>
+                    <span>Medir com Camera</span>
+                    <button id="cmeasure-close" class="btn-icon-sm" title="Fechar" style="margin-left:auto"><i class="codicon codicon-close"></i></button>
+                </div>
+
+                <!-- STEP 1: tirar foto -->
+                <div id="cmeasure-step-source" class="cmeasure-section">
+                    <p class="cmeasure-tip">Coloque um <b>objeto de referencia</b> de tamanho conhecido (folha A4, cartao de banco, regua...) no <b>mesmo plano</b> do objeto a medir.</p>
+                    <button id="cmeasure-take" class="cmeasure-btn-big">
+                        <i class="codicon codicon-device-camera"></i> Tirar Foto
+                    </button>
+                    <input type="file" id="cmeasure-photo-input" accept="image/*" capture="environment" style="display:none" />
+                </div>
+
+                <!-- STEP 2: marcar e medir -->
+                <div id="cmeasure-step-mark" class="cmeasure-section hidden">
+                    <div class="cmeasure-toolbar">
+                        <label class="cmeasure-label">Referencia
+                            <select id="cmeasure-ref-type" class="modal-select">
+                                <option value="210">Folha A4 - lado curto (21 cm)</option>
+                                <option value="297">Folha A4 - lado longo (29,7 cm)</option>
+                                <option value="85.6">Cartao bancario - lado longo (85,6 mm)</option>
+                                <option value="54">Cartao bancario - lado curto (54 mm)</option>
+                                <option value="100">Regua - 10 cm</option>
+                                <option value="custom">Personalizado...</option>
+                            </select>
+                        </label>
+                        <label class="cmeasure-label cmeasure-custom hidden">Valor (mm)
+                            <input type="number" id="cmeasure-custom-mm" class="modal-input" placeholder="ex: 50" min="1" step="0.1" />
+                        </label>
+                    </div>
+
+                    <div id="cmeasure-instructions" class="cmeasure-instructions">
+                        <i class="codicon codicon-info"></i>
+                        <span id="cmeasure-instr-text">Toque nos 2 extremos da referencia (vermelho)</span>
+                    </div>
+
+                    <div class="cmeasure-canvas-wrap">
+                        <canvas id="cmeasure-canvas"></canvas>
+                    </div>
+
+                    <div class="cmeasure-actions">
+                        <button id="cmeasure-undo" class="modal-btn cancel"><i class="codicon codicon-discard"></i> Desfazer</button>
+                        <button id="cmeasure-reset" class="modal-btn cancel"><i class="codicon codicon-refresh"></i> Limpar</button>
+                        <button id="cmeasure-new-photo" class="modal-btn cancel"><i class="codicon codicon-device-camera"></i> Nova foto</button>
+                    </div>
+
+                    <div id="cmeasure-results" class="cmeasure-results"></div>
+
+                    <!-- Calculadora de volume -->
+                    <div class="cmeasure-volume">
+                        <h5><i class="codicon codicon-symbol-numeric"></i> Volume (L x A x P)</h5>
+                        <div class="cmeasure-volume-row">
+                            <input type="number" id="cmv-w" class="modal-input" placeholder="Largura" step="0.01" />
+                            <span>x</span>
+                            <input type="number" id="cmv-h" class="modal-input" placeholder="Altura" step="0.01" />
+                            <span>x</span>
+                            <input type="number" id="cmv-d" class="modal-input" placeholder="Profund." step="0.01" />
+                            <select id="cmv-unit" class="modal-select">
+                                <option value="cm">cm</option>
+                                <option value="m">m</option>
+                                <option value="mm">mm</option>
+                            </select>
+                        </div>
+                        <div class="cmeasure-volume-row">
+                            <button id="cmv-from-measure" class="modal-btn cancel" title="Usar a ultima distancia medida"><i class="codicon codicon-arrow-down"></i> Usar medida</button>
+                            <div id="cmv-result" class="cmv-result">--</div>
                         </div>
                     </div>
                 </div>

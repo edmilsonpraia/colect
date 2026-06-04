@@ -1710,6 +1710,399 @@ inviteForm?.addEventListener('submit', async (e) => {
 });
 
 // ============================================================
+// CAMERA MEASURE (medir tamanho real com foto + referencia)
+// ============================================================
+const cmOverlay = $('cmeasure-overlay');
+const cmCloseBtn = $('cmeasure-close');
+const btnCameraMeasure = $('btn-camera-measure');
+const cmStepSource = $('cmeasure-step-source');
+const cmStepMark = $('cmeasure-step-mark');
+const cmTakeBtn = $('cmeasure-take');
+const cmPhotoInput = $('cmeasure-photo-input');
+const cmCanvas = $('cmeasure-canvas');
+const cmRefType = $('cmeasure-ref-type');
+const cmCustomLabel = document.querySelector('.cmeasure-custom');
+const cmCustomMm = $('cmeasure-custom-mm');
+const cmInstrText = $('cmeasure-instr-text');
+const cmInstructions = $('cmeasure-instructions');
+const cmResults = $('cmeasure-results');
+const cmUndoBtn = $('cmeasure-undo');
+const cmResetBtn = $('cmeasure-reset');
+const cmNewPhotoBtn = $('cmeasure-new-photo');
+
+const cmv = {
+    w: $('cmv-w'), h: $('cmv-h'), d: $('cmv-d'),
+    unit: $('cmv-unit'), result: $('cmv-result'),
+    fromMeasure: $('cmv-from-measure'),
+};
+
+const cmState = {
+    img: null,
+    refPoints: [],       // [{x,y}, {x,y}] - 2 pontos da referencia
+    measurePoints: [],   // pontos a medir
+    mode: 'ref',         // 'ref' | 'measure'
+    refMm: 210,          // valor real da referencia em mm
+    lastMeasurementMm: null,
+};
+
+function cmRefLabel() {
+    const opt = cmRefType.options[cmRefType.selectedIndex];
+    return (opt?.textContent || '').split(' (')[0];
+}
+
+function cmRefMmFromUI() {
+    if (cmRefType.value === 'custom') {
+        const v = parseFloat(cmCustomMm.value);
+        return isFinite(v) && v > 0 ? v : null;
+    }
+    return parseFloat(cmRefType.value);
+}
+
+function cmDist(p1, p2) {
+    return Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+}
+
+function cmMmPerPx() {
+    if (cmState.refPoints.length !== 2) return null;
+    const px = cmDist(cmState.refPoints[0], cmState.refPoints[1]);
+    if (px === 0) return null;
+    return cmState.refMm / px;
+}
+
+function cmFormatLength(mm) {
+    if (!isFinite(mm)) return '--';
+    if (mm < 10) return mm.toFixed(1) + ' mm';
+    if (mm < 1000) return (mm / 10).toFixed(2) + ' cm';
+    return (mm / 1000).toFixed(3) + ' m';
+}
+
+function cmFormatArea(mm2) {
+    if (!isFinite(mm2)) return '--';
+    if (mm2 < 100) return mm2.toFixed(1) + ' mm²';
+    if (mm2 < 1e6) return (mm2 / 100).toFixed(2) + ' cm²';
+    if (mm2 < 1e10) return (mm2 / 1e6).toFixed(3) + ' m²';
+    return (mm2 / 1e10).toFixed(3) + ' ha';
+}
+
+function cmPolygonAreaPx(pts) {
+    if (pts.length < 3) return 0;
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+    }
+    return Math.abs(a / 2);
+}
+
+function cmUpdateInstructions() {
+    if (cmState.mode === 'ref') {
+        cmInstructions.classList.remove('ready');
+        cmInstrText.textContent = `Toque nos 2 extremos da ${cmRefLabel()}. ${cmState.refPoints.length}/2`;
+    } else {
+        cmInstructions.classList.add('ready');
+        const n = cmState.measurePoints.length;
+        cmInstrText.textContent = n === 0
+            ? 'Calibrado. Agora toque no 1o ponto a medir.'
+            : n === 1
+                ? 'Toque no 2o ponto (mais pontos = poligono).'
+                : `Calibrado. ${n} pontos marcados.`;
+    }
+}
+
+function cmResetAll() {
+    cmState.refPoints = [];
+    cmState.measurePoints = [];
+    cmState.mode = 'ref';
+    cmState.lastMeasurementMm = null;
+    cmUpdateInstructions();
+    cmRender();
+    cmUpdateResults();
+}
+
+function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+cmRefType.addEventListener('change', () => {
+    cmCustomLabel.classList.toggle('hidden', cmRefType.value !== 'custom');
+    const v = cmRefMmFromUI();
+    if (v) cmState.refMm = v;
+    cmUpdateInstructions();
+    cmUpdateResults();
+    cmRender();
+});
+cmCustomMm.addEventListener('input', () => {
+    const v = cmRefMmFromUI();
+    if (v) { cmState.refMm = v; cmUpdateResults(); cmRender(); }
+});
+
+cmTakeBtn.addEventListener('click', () => cmPhotoInput.click());
+cmNewPhotoBtn.addEventListener('click', () => cmPhotoInput.click());
+
+cmPhotoInput.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    try {
+        const img = await loadImageFromFile(file);
+        cmState.img = img;
+        // Limita canvas a 2000px no maior lado para performance em mobile
+        const maxSide = 2000;
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        cmCanvas.width = Math.round(img.width * scale);
+        cmCanvas.height = Math.round(img.height * scale);
+        cmResetAll();
+        cmStepSource.classList.add('hidden');
+        cmStepMark.classList.remove('hidden');
+    } catch (err) {
+        alert('Erro ao carregar foto: ' + (err.message || err));
+    }
+});
+
+function cmCanvasCoords(evt) {
+    const rect = cmCanvas.getBoundingClientRect();
+    return {
+        x: (evt.clientX - rect.left) * (cmCanvas.width / rect.width),
+        y: (evt.clientY - rect.top) * (cmCanvas.height / rect.height),
+    };
+}
+
+function cmHandleTap(evt) {
+    if (!cmState.img) return;
+    evt.preventDefault();
+    const p = cmCanvasCoords(evt);
+    if (cmState.mode === 'ref') {
+        if (cmState.refPoints.length < 2) {
+            cmState.refPoints.push(p);
+            if (cmState.refPoints.length === 2) cmState.mode = 'measure';
+        }
+    } else {
+        cmState.measurePoints.push(p);
+    }
+    cmUpdateInstructions();
+    cmRender();
+    cmUpdateResults();
+}
+
+// pointerdown cobre mouse + touch + caneta sem disparar duas vezes
+cmCanvas.addEventListener('pointerdown', cmHandleTap);
+
+cmUndoBtn.addEventListener('click', () => {
+    if (cmState.measurePoints.length > 0) {
+        cmState.measurePoints.pop();
+    } else if (cmState.refPoints.length > 0) {
+        cmState.refPoints.pop();
+        cmState.mode = 'ref';
+    }
+    cmUpdateInstructions();
+    cmRender();
+    cmUpdateResults();
+});
+
+cmResetBtn.addEventListener('click', cmResetAll);
+
+function cmRender() {
+    const ctx = cmCanvas.getContext('2d');
+    if (!cmState.img) { ctx.clearRect(0, 0, cmCanvas.width, cmCanvas.height); return; }
+    ctx.drawImage(cmState.img, 0, 0, cmCanvas.width, cmCanvas.height);
+
+    const dotR = Math.max(8, cmCanvas.width / 180);
+    const lineW = Math.max(3, cmCanvas.width / 400);
+    const fontSize = Math.max(20, cmCanvas.width / 45);
+
+    // Referencia (vermelho)
+    if (cmState.refPoints.length > 0) {
+        ctx.strokeStyle = '#f44747';
+        ctx.fillStyle = '#f44747';
+        ctx.lineWidth = lineW;
+        if (cmState.refPoints.length === 2) {
+            ctx.beginPath();
+            ctx.moveTo(cmState.refPoints[0].x, cmState.refPoints[0].y);
+            ctx.lineTo(cmState.refPoints[1].x, cmState.refPoints[1].y);
+            ctx.stroke();
+            // Label da referencia
+            const mid = {
+                x: (cmState.refPoints[0].x + cmState.refPoints[1].x) / 2,
+                y: (cmState.refPoints[0].y + cmState.refPoints[1].y) / 2,
+            };
+            const label = `REF ${cmFormatLength(cmState.refMm)}`;
+            ctx.font = `bold ${fontSize}px Consolas`;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = Math.max(4, lineW * 1.5);
+            ctx.strokeText(label, mid.x + 12, mid.y + fontSize + 4);
+            ctx.fillStyle = '#f44747';
+            ctx.fillText(label, mid.x + 12, mid.y + fontSize + 4);
+            ctx.lineWidth = lineW;
+            ctx.strokeStyle = '#f44747';
+        }
+        cmState.refPoints.forEach((p) => {
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(p.x, p.y, dotR + 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#f44747';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2); ctx.fill();
+        });
+    }
+
+    // Medicoes (verde)
+    if (cmState.measurePoints.length > 0 && cmState.refPoints.length === 2) {
+        const mmPerPx = cmMmPerPx();
+        ctx.strokeStyle = '#4ec9b0';
+        ctx.fillStyle = '#4ec9b0';
+        ctx.lineWidth = lineW;
+        ctx.beginPath();
+        cmState.measurePoints.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+        cmState.measurePoints.forEach((p, i) => {
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(p.x, p.y, dotR + 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#4ec9b0';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${fontSize * 0.7}px Consolas`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(i + 1), p.x, p.y);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+        });
+        // Labels nos segmentos
+        ctx.font = `bold ${fontSize}px Consolas`;
+        for (let i = 1; i < cmState.measurePoints.length; i++) {
+            const p1 = cmState.measurePoints[i - 1];
+            const p2 = cmState.measurePoints[i];
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            const label = cmFormatLength(cmDist(p1, p2) * mmPerPx);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = Math.max(4, lineW * 1.5);
+            ctx.strokeText(label, mid.x + 12, mid.y - 8);
+            ctx.fillStyle = '#4ec9b0';
+            ctx.fillText(label, mid.x + 12, mid.y - 8);
+        }
+    }
+}
+
+function cmUpdateResults() {
+    if (cmState.refPoints.length !== 2 || cmState.measurePoints.length < 2) {
+        cmResults.className = 'cmeasure-results empty';
+        cmResults.textContent = cmState.refPoints.length < 2
+            ? 'Marque a referencia (vermelho) e depois os pontos a medir.'
+            : 'Marque ao menos 2 pontos para ver as medidas.';
+        return;
+    }
+    const mmPerPx = cmMmPerPx();
+    if (!mmPerPx) {
+        cmResults.className = 'cmeasure-results empty';
+        cmResults.textContent = 'Referencia invalida. Digite um valor positivo em mm.';
+        return;
+    }
+    cmResults.className = 'cmeasure-results';
+    cmResults.innerHTML = '';
+    let total = 0;
+    for (let i = 1; i < cmState.measurePoints.length; i++) {
+        const d = cmDist(cmState.measurePoints[i - 1], cmState.measurePoints[i]) * mmPerPx;
+        total += d;
+        const row = document.createElement('div');
+        row.className = 'cmeasure-result-row';
+        row.innerHTML = `<span class="seg-label">Segmento ${i} (${i}->${i+1})</span><span class="seg-value">${cmFormatLength(d)}</span>`;
+        cmResults.appendChild(row);
+    }
+    cmState.lastMeasurementMm = total;
+
+    const isClosed = cmState.measurePoints.length >= 3;
+    const totalRow = document.createElement('div');
+    totalRow.className = 'cmeasure-result-row total';
+    totalRow.innerHTML = `<span>${isClosed ? 'Perimetro aberto' : 'Distancia total'}</span><span class="seg-value">${cmFormatLength(total)}</span>`;
+    cmResults.appendChild(totalRow);
+
+    if (isClosed) {
+        // Adiciona segmento de fechamento (do ultimo ao primeiro) ao perimetro fechado
+        const closingSeg = cmDist(
+            cmState.measurePoints[cmState.measurePoints.length - 1],
+            cmState.measurePoints[0]
+        ) * mmPerPx;
+        const closedPerim = total + closingSeg;
+        const cpRow = document.createElement('div');
+        cpRow.className = 'cmeasure-result-row total';
+        cpRow.innerHTML = `<span>Perimetro fechado</span><span class="seg-value">${cmFormatLength(closedPerim)}</span>`;
+        cmResults.appendChild(cpRow);
+
+        const areaPx = cmPolygonAreaPx(cmState.measurePoints);
+        const areaMm2 = areaPx * mmPerPx * mmPerPx;
+        const areaRow = document.createElement('div');
+        areaRow.className = 'cmeasure-result-row total';
+        areaRow.innerHTML = `<span>Area (poligono)</span><span class="seg-value">${cmFormatArea(areaMm2)}</span>`;
+        cmResults.appendChild(areaRow);
+    }
+}
+
+// VOLUME
+function cmComputeVolume() {
+    const w = parseFloat(cmv.w.value);
+    const h = parseFloat(cmv.h.value);
+    const d = parseFloat(cmv.d.value);
+    const unit = cmv.unit.value;
+    if (![w, h, d].every((v) => isFinite(v) && v > 0)) {
+        cmv.result.textContent = '--';
+        return;
+    }
+    const vol = w * h * d; // volume na unidade selecionada
+    // Converte para mm³ pra normalizar
+    const factor = unit === 'mm' ? 1 : unit === 'cm' ? 1000 : 1e9;
+    const mm3 = vol * factor;
+    let label;
+    if (mm3 < 1000) label = `${mm3.toFixed(1)} mm³`;
+    else if (mm3 < 1e6) label = `${(mm3 / 1000).toFixed(2)} cm³`;
+    else if (mm3 < 1e9) label = `${(mm3 / 1e6).toFixed(2)} dm³ (${(mm3 / 1e6).toFixed(2)} L)`;
+    else label = `${(mm3 / 1e9).toFixed(3)} m³`;
+    cmv.result.textContent = label;
+}
+[cmv.w, cmv.h, cmv.d, cmv.unit].forEach((el) => el.addEventListener('input', cmComputeVolume));
+cmv.unit.addEventListener('change', cmComputeVolume);
+
+cmv.fromMeasure.addEventListener('click', () => {
+    if (!cmState.lastMeasurementMm) { alert('Nenhuma medida disponivel ainda.'); return; }
+    const mm = cmState.lastMeasurementMm;
+    const unit = cmv.unit.value;
+    const v = unit === 'mm' ? mm : unit === 'cm' ? mm / 10 : mm / 1000;
+    const target = [cmv.w, cmv.h, cmv.d].find((el) => !el.value);
+    if (target) {
+        target.value = v.toFixed(unit === 'mm' ? 1 : unit === 'cm' ? 2 : 3);
+        cmComputeVolume();
+        target.focus();
+    } else {
+        alert('Os 3 campos ja estao preenchidos. Limpe um pra adicionar.');
+    }
+});
+
+// MODAL
+btnCameraMeasure.addEventListener('click', () => {
+    cmOverlay.classList.remove('hidden');
+    cmStepSource.classList.remove('hidden');
+    cmStepMark.classList.add('hidden');
+});
+cmCloseBtn.addEventListener('click', () => cmOverlay.classList.add('hidden'));
+cmOverlay.addEventListener('click', (e) => {
+    if (e.target === cmOverlay) cmOverlay.classList.add('hidden');
+});
+
+// ============================================================
 // INICIALIZACAO (apos auth)
 // ============================================================
 async function bootstrapApp() {
