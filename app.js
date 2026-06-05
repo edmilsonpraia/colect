@@ -1654,7 +1654,58 @@ btnAdd.addEventListener('click', () => {
 btnTrack.addEventListener('click', toggleTracking);
 btnClear.addEventListener('click', clearPoints);
 btnImport.addEventListener('click', () => fileImport.click());
-fileImport.addEventListener('change', (e) => { if (e.target.files[0]) { importFile(e.target.files[0]); e.target.value = ''; } });
+fileImport.addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+
+    // Agrupa componentes soltos de shapefile (.shp + .dbf + .shx + .prj + .cpg)
+    // por nome-base, e processa cada grupo como um shapefile zipado em memoria
+    const shapefileExts = ['.shp', '.dbf', '.shx', '.prj', '.cpg'];
+    const isShapefilePart = (f) => shapefileExts.some((x) => f.name.toLowerCase().endsWith(x));
+    const shapefileParts = files.filter(isShapefilePart);
+    const otherFiles = files.filter((f) => !isShapefilePart(f));
+
+    if (shapefileParts.length > 0) {
+        if (typeof window.JSZip !== 'function') {
+            alert('JSZip nao carregou. Recarregue a pagina.');
+            return;
+        }
+        const groups = {};
+        for (const f of shapefileParts) {
+            const base = f.name.replace(/\.[^.]+$/, '');
+            const ext = f.name.toLowerCase().match(/\.[^.]+$/)[0];
+            (groups[base] = groups[base] || {})[ext] = f;
+        }
+        for (const [base, parts] of Object.entries(groups)) {
+            if (!parts['.shp']) {
+                alert(`Faltando arquivo .shp para o conjunto "${base}". Selecione tambem o .shp.`);
+                continue;
+            }
+            if (!parts['.dbf']) {
+                console.warn(`Sem .dbf para "${base}" — atributos nao virao.`);
+            }
+            try {
+                const zip = new window.JSZip();
+                for (const [ext, file] of Object.entries(parts)) {
+                    zip.file(base + ext, await file.arrayBuffer());
+                }
+                const zipBuf = await zip.generateAsync({ type: 'arraybuffer' });
+                const virtualFile = new File([zipBuf], base + '.zip', { type: 'application/zip' });
+                await importFile(virtualFile);
+            } catch (err) {
+                console.error('Erro shapefile', base, err);
+                alert(`Erro ao processar shapefile "${base}": ${err.message || err}`);
+            }
+        }
+    }
+
+    // Processa outros arquivos (kml/kmz/geojson/gpx/tif/json/zip)
+    for (const f of otherFiles) {
+        try { await importFile(f); }
+        catch (err) { console.error('Erro arquivo', f.name, err); }
+    }
+});
 
 // ============================================================
 // ONLINE / OFFLINE + SYNC INDICATOR + TOASTS
