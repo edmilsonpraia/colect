@@ -277,6 +277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 const state = {
     points: [],
     polygons: [],       // poligonos importados (shapefile, geojson, kml)
+    rasters: [],        // overlays raster (GeoTIFF) - memoria-only por sessao
     project: null,      // { id, name, owner_id, ... }
     projects: [],       // [{ id, name, ... }]
     myRole: null,       // 'admin' | 'collaborator' | 'viewer'
@@ -304,7 +305,8 @@ const tileDark = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 });
 tileDark.addTo(map);
 
-// Ordem importa: polygonsLayer adicionado primeiro fica embaixo
+// Ordem importa: rastersLayer e polygonsLayer adicionados primeiro ficam embaixo
+const rastersLayer = L.layerGroup().addTo(map);
 const polygonsLayer = L.layerGroup().addTo(map);
 const markersLayer = L.layerGroup().addTo(map);
 const pathLayer = L.layerGroup().addTo(map);
@@ -337,6 +339,8 @@ const measureBar = $('measure-bar'), measureText = $('measure-text'), btnMeasure
 const exportOverlay = $('export-overlay'), exportCancel = $('export-cancel');
 const polygonsListEl = $('polygons-list'), polygonsContainer = $('polygons-container');
 const polygonsCount = $('polygons-count'), btnClearPolygons = $('btn-clear-polygons');
+const rastersListEl = $('rasters-list'), rastersContainer = $('rasters-container');
+const rastersCount = $('rasters-count'), btnClearRasters = $('btn-clear-rasters');
 
 // ============================================================
 // TEMA
@@ -1048,7 +1052,165 @@ btnClearPolygons?.addEventListener('click', async () => {
     }
 });
 
-function renderAll() { renderMap(); renderPolygonsMap(); renderPointsList(); renderPolygonsList(); renderStats(); fetchElevation(); }
+// ============================================================
+// RASTERS (GeoTIFF) - memoria-only por sessao
+// ============================================================
+async function importGeoTIFF(file) {
+    if (!window.GeoTIFF || typeof window.GeoTIFF.fromArrayBuffer !== 'function') {
+        alert('Biblioteca geotiff.js nao carregou. Verifique a conexao.');
+        return;
+    }
+    showToast('Lendo GeoTIFF...', 'info', 2000);
+    try {
+        const buf = await file.arrayBuffer();
+        const tiff = await window.GeoTIFF.fromArrayBuffer(buf);
+        const image = await tiff.getImage();
+        const bbox = image.getBoundingBox(); // [minX, minY, maxX, maxY]
+        if (!bbox || bbox.some((v) => !isFinite(v))) {
+            alert('GeoTIFF sem georeferenciamento valido (tiepoint/scale ausente).');
+            return;
+        }
+        // Aviso simples sobre projecao: se valores fora de [-180,180]/[-90,90], provavel UTM/projetado
+        const looksLatLng = Math.abs(bbox[0]) <= 180 && Math.abs(bbox[2]) <= 180
+                         && Math.abs(bbox[1]) <= 90  && Math.abs(bbox[3]) <= 90;
+        if (!looksLatLng) {
+            const ok = confirm(
+                'Este GeoTIFF parece estar em sistema projetado (nao WGS84/lat-lng).\n' +
+                'A exibicao pode ficar fora de lugar. Continuar mesmo assim?'
+            );
+            if (!ok) return;
+        }
+
+        const width = image.getWidth();
+        const height = image.getHeight();
+        // Limita a 4096 px no maior lado para performance
+        const maxSide = 4096;
+        const scale = Math.min(1, maxSide / Math.max(width, height));
+        const tw = Math.max(1, Math.round(width * scale));
+        const th = Math.max(1, Math.round(height * scale));
+
+        let rgb;
+        try {
+            rgb = await image.readRGB({ width: tw, height: th });
+        } catch (e) {
+            // fallback: lê primeiro band em escala cinza
+            const raster = await image.readRasters({ width: tw, height: th });
+            const band = raster[0] || raster;
+            rgb = new Uint8Array(tw * th * 3);
+            let mn = Infinity, mx = -Infinity;
+            for (let i = 0; i < band.length; i++) { if (band[i] < mn) mn = band[i]; if (band[i] > mx) mx = band[i]; }
+            const range = (mx - mn) || 1;
+            for (let i = 0; i < band.length; i++) {
+                const v = Math.round(((band[i] - mn) / range) * 255);
+                rgb[i*3] = rgb[i*3+1] = rgb[i*3+2] = v;
+            }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = tw; canvas.height = th;
+        const ctx = canvas.getContext('2d');
+        const imgData = ctx.createImageData(tw, th);
+        for (let i = 0, p = 0; i < rgb.length; i += 3, p += 4) {
+            imgData.data[p]     = rgb[i];
+            imgData.data[p + 1] = rgb[i + 1];
+            imgData.data[p + 2] = rgb[i + 2];
+            imgData.data[p + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+
+        const bounds = [[bbox[1], bbox[0]], [bbox[3], bbox[2]]]; // [[south, west], [north, east]]
+        const opacity = 0.75;
+        const layer = L.imageOverlay(dataUrl, bounds, { opacity }).addTo(rastersLayer);
+
+        const id = (window.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
+        state.rasters.push({
+            id, name: file.name, bounds, layer, opacity, visible: true,
+        });
+        renderRastersList();
+        map.fitBounds(bounds, { padding: [20, 20] });
+        showToast(`GeoTIFF "${file.name}" carregado.`, 'success');
+    } catch (err) {
+        console.error('GeoTIFF error', err);
+        alert('Erro ao ler GeoTIFF: ' + (err.message || err));
+    }
+}
+
+function renderRastersList() {
+    if (!state.rasters.length) {
+        rastersListEl.classList.add('hidden');
+        rastersCount.textContent = '0';
+        return;
+    }
+    rastersListEl.classList.remove('hidden');
+    rastersCount.textContent = state.rasters.length;
+    rastersContainer.innerHTML = '';
+    state.rasters.forEach((r, i) => {
+        const opPct = Math.round(r.opacity * 100);
+        const div = document.createElement('div');
+        div.className = 'raster-item';
+        div.innerHTML = `
+            <span class="raster-name" title="${r.name}"><i class="codicon codicon-file-media"></i> ${r.name}</span>
+            <div class="raster-actions">
+                <button class="btn-toggle ${r.visible ? '' : 'off'}" data-i="${i}" title="${r.visible ? 'Ocultar' : 'Mostrar'}">
+                    <i class="codicon ${r.visible ? 'codicon-eye' : 'codicon-eye-closed'}"></i>
+                </button>
+                <button class="btn-focus" data-i="${i}" title="Focar"><i class="codicon codicon-screen-full"></i></button>
+                <button class="btn-remove" data-i="${i}" title="Remover"><i class="codicon codicon-close"></i></button>
+            </div>
+            <div class="raster-opacity">
+                <span>Opacidade</span>
+                <input type="range" min="0" max="100" value="${opPct}" data-i="${i}" />
+                <span class="raster-opacity-value">${opPct}%</span>
+            </div>
+        `;
+        rastersContainer.appendChild(div);
+    });
+    rastersContainer.querySelectorAll('input[type=range]').forEach((sl) => {
+        sl.addEventListener('input', () => {
+            const i = +sl.dataset.i;
+            const r = state.rasters[i]; if (!r) return;
+            r.opacity = sl.value / 100;
+            if (r.layer && r.visible) r.layer.setOpacity(r.opacity);
+            sl.parentElement.querySelector('.raster-opacity-value').textContent = sl.value + '%';
+        });
+    });
+    rastersContainer.querySelectorAll('.btn-focus').forEach((b) => {
+        b.addEventListener('click', () => {
+            const r = state.rasters[+b.dataset.i]; if (!r) return;
+            map.fitBounds(r.bounds, { padding: [20, 20] });
+        });
+    });
+    rastersContainer.querySelectorAll('.btn-toggle').forEach((b) => {
+        b.addEventListener('click', () => {
+            const r = state.rasters[+b.dataset.i]; if (!r) return;
+            r.visible = !r.visible;
+            if (r.visible) { r.layer.addTo(rastersLayer); r.layer.setOpacity(r.opacity); }
+            else { rastersLayer.removeLayer(r.layer); }
+            renderRastersList();
+        });
+    });
+    rastersContainer.querySelectorAll('.btn-remove').forEach((b) => {
+        b.addEventListener('click', () => {
+            const i = +b.dataset.i;
+            const r = state.rasters[i]; if (!r) return;
+            if (!confirm(`Remover camada "${r.name}"?`)) return;
+            if (r.layer) rastersLayer.removeLayer(r.layer);
+            state.rasters.splice(i, 1);
+            renderRastersList();
+        });
+    });
+}
+
+btnClearRasters?.addEventListener('click', () => {
+    if (!state.rasters.length) return;
+    if (!confirm(`Remover todas as ${state.rasters.length} camadas raster desta sessao?`)) return;
+    state.rasters.forEach((r) => r.layer && rastersLayer.removeLayer(r.layer));
+    state.rasters = [];
+    renderRastersList();
+});
+
+function renderAll() { renderMap(); renderPolygonsMap(); renderPointsList(); renderPolygonsList(); renderRastersList(); renderStats(); fetchElevation(); }
 
 function focusPoint(index) { map.setView([state.points[index].lat, state.points[index].lng], 17); }
 
@@ -1379,7 +1541,20 @@ async function importFile(file) {
             pts = r.pts; polys = r.polys;
             sourceLbl = 'kml';
         } else if (ext === 'kmz') {
-            alert('KMZ ainda nao suportado neste MVP. Descompacte e importe o .kml interno.');
+            if (typeof window.JSZip !== 'function') {
+                alert('Biblioteca JSZip nao carregou. Verifique a conexao.');
+                return;
+            }
+            const zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+            // Procura o primeiro .kml dentro do KMZ (normalmente doc.kml)
+            const kmlEntry = Object.values(zip.files).find((f) => /\.kml$/i.test(f.name) && !f.dir);
+            if (!kmlEntry) { alert('Nenhum arquivo .kml encontrado dentro do KMZ.'); return; }
+            const kmlText = await kmlEntry.async('text');
+            const r = extractFromKML(kmlText);
+            pts = r.pts; polys = r.polys;
+            sourceLbl = 'kmz';
+        } else if (ext === 'tif' || ext === 'tiff') {
+            await importGeoTIFF(file);
             return;
         } else if (ext === 'gpx') {
             const text = await file.text();
@@ -1402,7 +1577,7 @@ async function importFile(file) {
             });
             sourceLbl = 'gpx';
         } else {
-            alert('Formato nao suportado. Use: .zip (shapefile), .geojson, .json, .kml, .gpx');
+            alert('Formato nao suportado. Use: .zip (shapefile), .geojson, .json, .kml, .kmz, .gpx, .tif/.tiff (GeoTIFF)');
             return;
         }
 
@@ -1818,7 +1993,8 @@ async function loadActivity() {
 async function openDashboard() {
     if (!state.project) { alert('Selecione um projeto primeiro.'); return; }
     dashProjectName.textContent = state.project.name;
-    dashMyRole.outerHTML = `<span id="dashboard-my-role" class="role-badge role-${state.myRole || 'viewer'}">${ROLE_LABEL[state.myRole] || '...'}</span>`;
+    dashMyRole.textContent = ROLE_LABEL[state.myRole] || '...';
+    dashMyRole.className = `role-badge role-${state.myRole || 'viewer'}`;
     dashTotalPoints.textContent = '--';
     dashContributors.textContent = '--';
     dashMembersCount.textContent = '--';
@@ -1830,6 +2006,7 @@ async function openDashboard() {
     const isAdmin = state.myRole === 'admin';
     dashboardModal?.classList.toggle('is-admin', isAdmin);
     dashInviteSection.classList.toggle('hidden', !isAdmin);
+    dashboardReportsSection?.classList.toggle('hidden', !isAdmin);
     switchDashboardTab('overview');
     dashboardOverlay.classList.remove('hidden');
 
@@ -1949,6 +2126,356 @@ inviteForm?.addEventListener('submit', async (e) => {
         inviteFeedback.classList.add('error');
     }
 });
+
+// ============================================================
+// RELATORIOS (PDF + Word) - Admin baixa para acompanhamento
+// ============================================================
+const dashboardReportsSection = $('dashboard-reports-section');
+const btnReportPdf = $('btn-report-pdf');
+const btnReportWord = $('btn-report-word');
+const reportIncludePhotos = $('report-include-photos');
+
+function safeFilename(name) {
+    return (name || 'projeto').replace(/[^\w\-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'projeto';
+}
+
+function escHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtMetaShort(a) {
+    const m = a.metadata || {};
+    const parts = [];
+    if (m.name) parts.push(`nome=${m.name}`);
+    if (m.label) parts.push(`legenda=${m.label}`);
+    if (m.category) parts.push(`categoria=${m.category}`);
+    if (m.role) parts.push(`papel=${m.role}`);
+    if (m.old_role && m.new_role) parts.push(`${m.old_role}->${m.new_role}`);
+    if (m.vertices_count) parts.push(`${m.vertices_count} vertices`);
+    if (m.source) parts.push(`fonte=${m.source}`);
+    if (m.has_photo) parts.push('com foto');
+    return parts.join('; ');
+}
+
+async function gatherReportData() {
+    const proj = state.project;
+    const [stats, members, photos, activities] = await Promise.all([
+        window.cc.store.getDashboard(proj.id).catch(() => null),
+        window.cc.store.listMembers(proj.id).catch(() => []),
+        window.cc.store.listProjectPhotos(proj.id).catch(() => []),
+        window.cc.store.getActivities(proj.id, 500).catch(() => []),
+    ]);
+    return {
+        project: proj,
+        stats, members, photos, activities,
+        points: state.points.slice(),
+        polygons: state.polygons.slice(),
+        generated_at: new Date(),
+        generated_by: window.cc.auth.getUser()?.email || '-',
+    };
+}
+
+// ===== PDF (jsPDF + autoTable) =====
+function buildPDF(data, includePhotos) {
+    const pdfNS = window.jspdf;
+    if (!pdfNS || !pdfNS.jsPDF) { alert('jsPDF nao carregou.'); return; }
+    const doc = new pdfNS.jsPDF();
+    const fmt = (d) => d ? new Date(d).toLocaleString('pt-BR') : '-';
+    const fmtDay = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '-';
+
+    // Capa
+    doc.setFontSize(18);
+    doc.setTextColor(14, 99, 156);
+    doc.text(`Relatorio: ${data.project.name}`, 14, 22);
+    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(10);
+    doc.text(`Gerado em ${fmt(data.generated_at)}`, 14, 30);
+    doc.text(`Por ${data.generated_by}`, 14, 35);
+
+    // Resumo
+    doc.setFontSize(13);
+    doc.setTextColor(40, 40, 40);
+    doc.text('Resumo', 14, 48);
+    doc.setFontSize(10);
+    const resumo = [
+        ['Pontos coletados',        String(data.stats?.total_points ?? data.points.length)],
+        ['Colaboradores ativos',    String(data.stats?.contributors_count ?? 0)],
+        ['Membros do projeto',      String(data.stats?.members_count ?? data.members.length)],
+        ['Poligonos importados',    String(data.polygons.length)],
+        ['Ultimo ponto',            data.stats?.last_point_at ? fmt(data.stats.last_point_at) : 'Nenhum'],
+        ['Atividades registradas',  String(data.activities.length)],
+    ];
+    doc.autoTable({
+        startY: 52,
+        body: resumo,
+        styles: { fontSize: 9, cellPadding: 2 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } },
+        theme: 'plain',
+    });
+
+    // Membros
+    if (data.members.length) {
+        doc.addPage();
+        doc.setFontSize(14); doc.text(`Membros (${data.members.length})`, 14, 18);
+        doc.autoTable({
+            startY: 24,
+            head: [['Nome', 'Email', 'Papel', 'Desde']],
+            body: data.members.map(m => [
+                m.profile?.display_name || '-',
+                m.profile?.email || '-',
+                ROLE_LABEL[m.role] || m.role,
+                fmtDay(m.joined_at),
+            ]),
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [14, 99, 156] },
+        });
+    }
+
+    // Pontos
+    if (data.points.length) {
+        doc.addPage();
+        doc.setFontSize(14); doc.text(`Pontos Coletados (${data.points.length})`, 14, 18);
+        doc.autoTable({
+            startY: 24,
+            head: [['#', 'Latitude', 'Longitude', 'Legenda', 'Categoria', 'Foto', 'Data']],
+            body: data.points.map((p, i) => [
+                i + 1,
+                p.lat.toFixed(6),
+                p.lng.toFixed(6),
+                p.label || '-',
+                p.category || '-',
+                p.photo ? 'sim' : 'nao',
+                p.timestamp ? fmt(p.timestamp) : '-',
+            ]),
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [14, 99, 156] },
+        });
+    }
+
+    // Poligonos
+    if (data.polygons.length) {
+        doc.addPage();
+        doc.setFontSize(14); doc.text(`Poligonos Importados (${data.polygons.length})`, 14, 18);
+        doc.autoTable({
+            startY: 24,
+            head: [['Nome', 'Fonte', 'Vertices', 'Criado']],
+            body: data.polygons.map(p => [
+                p.name || '-',
+                p.source || '-',
+                Array.isArray(p.vertices) ? p.vertices.length : 0,
+                fmtDay(p.created_at),
+            ]),
+            styles: { fontSize: 9 },
+            headStyles: { fillColor: [14, 99, 156] },
+        });
+    }
+
+    // Linha do tempo
+    if (data.activities.length) {
+        doc.addPage();
+        doc.setFontSize(14); doc.text(`Linha do Tempo (${data.activities.length})`, 14, 18);
+        doc.autoTable({
+            startY: 24,
+            head: [['Data/Hora', 'Ator', 'Acao', 'Detalhes']],
+            body: data.activities.map(a => [
+                fmt(a.created_at),
+                a.actor?.display_name || a.actor?.email || '-',
+                a.action,
+                fmtMetaShort(a),
+            ]),
+            styles: { fontSize: 7, cellPadding: 1.5 },
+            headStyles: { fillColor: [14, 99, 156] },
+            columnStyles: { 3: { cellWidth: 70 } },
+        });
+    }
+
+    // Galeria de fotos
+    if (includePhotos && data.photos.length) {
+        doc.addPage();
+        doc.setFontSize(14); doc.text(`Galeria de Fotos (${data.photos.length})`, 14, 18);
+        const photosPerRow = 3;
+        const margin = 14;
+        const pageW = 210; // A4 width mm
+        const usable = pageW - margin * 2;
+        const gap = 4;
+        const w = (usable - gap * (photosPerRow - 1)) / photosPerRow;
+        const h = w;
+        let py = 26, col = 0;
+        data.photos.forEach((p, i) => {
+            if (py + h + 14 > 290) { doc.addPage(); py = 18; col = 0; }
+            const x = margin + col * (w + gap);
+            try {
+                doc.addImage(p.photo, 'JPEG', x, py, w, h);
+            } catch (e) {
+                try { doc.addImage(p.photo, 'PNG', x, py, w, h); }
+                catch (e2) { console.warn('foto ignorada', i, e2); }
+            }
+            doc.setFontSize(7);
+            doc.setTextColor(80, 80, 80);
+            const caption1 = `#${i + 1} ${p.label || ''}`.slice(0, 35);
+            const caption2 = (p.author?.display_name || p.author?.email || '').slice(0, 30);
+            doc.text(caption1, x, py + h + 4);
+            doc.text(caption2, x, py + h + 8);
+            col++;
+            if (col >= photosPerRow) { col = 0; py += h + 13; }
+        });
+    }
+
+    // Salvar
+    const fn = `relatorio-${safeFilename(data.project.name)}-${new Date().toISOString().slice(0, 10)}.pdf`;
+    doc.save(fn);
+}
+
+// ===== Word (.doc via HTML) =====
+function buildWord(data, includePhotos) {
+    const fmt = (d) => d ? new Date(d).toLocaleString('pt-BR') : '-';
+    const fmtDay = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '-';
+
+    const styles = `
+        body { font-family: Calibri, Arial, sans-serif; color: #222; }
+        h1 { color: #0e639c; font-size: 22pt; margin-bottom: 4pt; }
+        h2 { color: #0e639c; font-size: 14pt; border-bottom: 1pt solid #ccc; padding-bottom: 2pt; margin-top: 18pt; }
+        .meta { color: #666; font-size: 9pt; margin-bottom: 12pt; }
+        table { border-collapse: collapse; width: 100%; margin: 6pt 0; }
+        th, td { border: 0.5pt solid #999; padding: 4pt 6pt; font-size: 9pt; vertical-align: top; }
+        th { background: #0e639c; color: #fff; text-align: left; }
+        ul { margin: 0; padding-left: 16pt; }
+        .photos { margin-top: 8pt; }
+        .photo-card { display: inline-block; vertical-align: top; margin: 4pt 6pt 8pt 0; width: 200pt; }
+        .photo-card img { width: 200pt; height: auto; border: 1pt solid #ccc; }
+        .photo-caption { font-size: 8pt; color: #444; margin-top: 2pt; }
+        .photo-author { font-size: 7.5pt; color: #888; }
+    `;
+
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
+                       xmlns:w='urn:schemas-microsoft-com:office:word'
+                       xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+    <meta charset="utf-8" />
+    <title>Relatorio ${escHtml(data.project.name)}</title>
+    <style>${styles}</style>
+</head>
+<body>
+    <h1>Relatorio: ${escHtml(data.project.name)}</h1>
+    <p class="meta">Gerado em ${fmt(data.generated_at)} por ${escHtml(data.generated_by)}</p>
+
+    <h2>Resumo</h2>
+    <ul>
+        <li><b>Pontos coletados:</b> ${data.stats?.total_points ?? data.points.length}</li>
+        <li><b>Colaboradores ativos:</b> ${data.stats?.contributors_count ?? 0}</li>
+        <li><b>Membros do projeto:</b> ${data.stats?.members_count ?? data.members.length}</li>
+        <li><b>Poligonos importados:</b> ${data.polygons.length}</li>
+        <li><b>Ultimo ponto:</b> ${data.stats?.last_point_at ? fmt(data.stats.last_point_at) : 'Nenhum'}</li>
+        <li><b>Atividades registradas:</b> ${data.activities.length}</li>
+    </ul>
+
+    ${data.members.length ? `
+    <h2>Membros (${data.members.length})</h2>
+    <table>
+        <tr><th>Nome</th><th>Email</th><th>Papel</th><th>Desde</th></tr>
+        ${data.members.map(m => `
+            <tr>
+                <td>${escHtml(m.profile?.display_name || '-')}</td>
+                <td>${escHtml(m.profile?.email || '-')}</td>
+                <td>${escHtml(ROLE_LABEL[m.role] || m.role)}</td>
+                <td>${fmtDay(m.joined_at)}</td>
+            </tr>`).join('')}
+    </table>` : ''}
+
+    ${data.points.length ? `
+    <h2>Pontos Coletados (${data.points.length})</h2>
+    <table>
+        <tr><th>#</th><th>Latitude</th><th>Longitude</th><th>Legenda</th><th>Categoria</th><th>Foto</th><th>Data</th></tr>
+        ${data.points.map((p, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                <td>${p.lat.toFixed(6)}</td>
+                <td>${p.lng.toFixed(6)}</td>
+                <td>${escHtml(p.label || '-')}</td>
+                <td>${escHtml(p.category || '-')}</td>
+                <td>${p.photo ? 'sim' : 'nao'}</td>
+                <td>${p.timestamp ? fmt(p.timestamp) : '-'}</td>
+            </tr>`).join('')}
+    </table>` : ''}
+
+    ${data.polygons.length ? `
+    <h2>Poligonos Importados (${data.polygons.length})</h2>
+    <table>
+        <tr><th>Nome</th><th>Fonte</th><th>Vertices</th><th>Criado</th></tr>
+        ${data.polygons.map(p => `
+            <tr>
+                <td>${escHtml(p.name || '-')}</td>
+                <td>${escHtml(p.source || '-')}</td>
+                <td>${Array.isArray(p.vertices) ? p.vertices.length : 0}</td>
+                <td>${fmtDay(p.created_at)}</td>
+            </tr>`).join('')}
+    </table>` : ''}
+
+    ${data.activities.length ? `
+    <h2>Linha do Tempo (${data.activities.length})</h2>
+    <table>
+        <tr><th>Data/Hora</th><th>Ator</th><th>Acao</th><th>Detalhes</th></tr>
+        ${data.activities.map(a => `
+            <tr>
+                <td>${fmt(a.created_at)}</td>
+                <td>${escHtml(a.actor?.display_name || a.actor?.email || '-')}</td>
+                <td>${escHtml(a.action)}</td>
+                <td>${escHtml(fmtMetaShort(a))}</td>
+            </tr>`).join('')}
+    </table>` : ''}
+
+    ${includePhotos && data.photos.length ? `
+    <h2>Galeria de Fotos (${data.photos.length})</h2>
+    <div class="photos">
+        ${data.photos.map((p, i) => `
+            <div class="photo-card">
+                <img src="${p.photo}" alt="#${i + 1}" />
+                <div class="photo-caption">#${i + 1} ${escHtml(p.label || '')}</div>
+                <div class="photo-author">Por ${escHtml(p.author?.display_name || p.author?.email || '-')} - ${fmt(p.created_at)}</div>
+                <div class="photo-author">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</div>
+            </div>`).join('')}
+    </div>` : ''}
+
+</body></html>`;
+
+    const blob = new Blob(['﻿', html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-${safeFilename(data.project.name)}-${new Date().toISOString().slice(0, 10)}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function downloadReport(format) {
+    if (!state.project) return;
+    if (state.myRole !== 'admin') { alert('Apenas administradores podem baixar relatorios.'); return; }
+    const btn = format === 'pdf' ? btnReportPdf : btnReportWord;
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="codicon codicon-loading codicon-modifier-spin"></i> Gerando...';
+    try {
+        showToast('Buscando dados do relatorio...', 'info', 1500);
+        const data = await gatherReportData();
+        const includePhotos = reportIncludePhotos?.checked !== false;
+        if (format === 'pdf') buildPDF(data, includePhotos);
+        else buildWord(data, includePhotos);
+        showToast(`Relatorio ${format.toUpperCase()} gerado.`, 'success');
+    } catch (err) {
+        console.error('Erro relatorio', err);
+        alert('Erro ao gerar relatorio: ' + (err.message || err));
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+}
+
+btnReportPdf?.addEventListener('click', () => downloadReport('pdf'));
+btnReportWord?.addEventListener('click', () => downloadReport('word'));
 
 // ============================================================
 // CAMERA MEASURE (medir tamanho real com foto + referencia)
@@ -2380,6 +2907,8 @@ window.addEventListener('cc:signedout', () => {
     state.projects = [];
     state.points = [];
     state.polygons = [];
+    state.rasters.forEach((r) => r.layer && rastersLayer.removeLayer(r.layer));
+    state.rasters = [];
     state.myRole = null;
     elevationCache = {};
     elevationData = [];

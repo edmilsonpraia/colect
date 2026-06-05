@@ -108,12 +108,21 @@
                     <i class="codicon codicon-cloud-upload"></i><span>Importar</span>
                 </button>
             </div>
-            <input type="file" id="file-import" accept=".json,.geojson,.kml,.kmz,.gpx,.zip" style="display:none" />
+            <input type="file" id="file-import" accept=".json,.geojson,.kml,.kmz,.gpx,.zip,.tif,.tiff" style="display:none" />
         </div>
 
         <div id="points-list">
             <h3><i class="codicon codicon-list-unordered"></i> Pontos Coletados (<span id="points-count">0</span>)</h3>
             <div id="points-container"></div>
+        </div>
+
+        <div id="rasters-list" class="rasters-list hidden">
+            <div class="polygons-list-header">
+                <h3><i class="codicon codicon-file-media"></i> Camadas Raster (<span id="rasters-count">0</span>)</h3>
+                <button id="btn-clear-rasters" class="btn-icon-sm" title="Remover todas as camadas raster"><i class="codicon codicon-trash"></i></button>
+            </div>
+            <div id="rasters-container"></div>
+            <p class="rasters-note">Rasters (GeoTIFF) ficam apenas nesta sessao. Recarregue a pagina para limpar.</p>
         </div>
 
         <div id="polygons-list" class="polygons-list hidden">
@@ -260,6 +269,24 @@
                             <h4 id="dashboard-project-name">--</h4>
                             <span id="dashboard-my-role" class="role-badge">--</span>
                         </div>
+                    </div>
+                    <div class="dashboard-section dashboard-reports-section hidden" id="dashboard-reports-section">
+                        <h5><i class="codicon codicon-cloud-download"></i> Relatorios (Admin)</h5>
+                        <div class="report-options">
+                            <label class="report-toggle">
+                                <input type="checkbox" id="report-include-photos" checked />
+                                Incluir fotos (arquivo fica maior)
+                            </label>
+                        </div>
+                        <div class="report-buttons">
+                            <button id="btn-report-pdf" class="modal-btn confirm">
+                                <i class="codicon codicon-file-pdf"></i> Baixar PDF
+                            </button>
+                            <button id="btn-report-word" class="modal-btn confirm">
+                                <i class="codicon codicon-file"></i> Baixar Word (.doc)
+                            </button>
+                        </div>
+                        <p class="report-note">Inclui projeto, pontos, poligonos, membros e linha do tempo. Os dados sao os ja sincronizados no servidor.</p>
                     </div>
                     <div class="dashboard-section">
                         <h5><i class="codicon codicon-pulse"></i> Estatisticas</h5>
@@ -523,6 +550,10 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
     <script src="supabase-client.js"></script>
     <script src="data-store.js"></script>
     <script src="app.js"></script>
