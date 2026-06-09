@@ -1234,28 +1234,59 @@ function toggleTracking() {
     if (state.tracking) {
         navigator.geolocation.clearWatch(state.watchId);
         state.tracking = false; state.watchId = null;
+        state.lastTrackLatLng = null;
         btnTrack.innerHTML = '<i class="codicon codicon-record"></i><span>Rastreio</span>';
         btnTrack.classList.remove('tracking');
+        if (typeof showToast === 'function') showToast('Rastreio parado.', 'info', 1800);
     } else {
+        // Verificacoes de pre-condicoes
         if (!navigator.geolocation) { alert('Geolocalizacao nao suportada.'); return; }
+        if (!state.project) {
+            alert('Selecione um projeto antes de iniciar o rastreio.');
+            return;
+        }
+        if (state.myRole === 'viewer') {
+            alert('Voce e visualizador neste projeto, nao pode rastrear pontos.');
+            return;
+        }
+
         state.tracking = true;
+        state.lastTrackLatLng = null;  // posicao do ultimo ponto registrado pelo rastreio
         btnTrack.innerHTML = '<i class="codicon codicon-debug-stop"></i><span>Parar</span>';
         btnTrack.classList.add('tracking');
+        if (typeof showToast === 'function') {
+            showToast('Rastreio iniciado. Caminhe para registrar o trajeto (1 ponto a cada 5 m).', 'success', 3500);
+        }
+        console.log('[cc] tracking iniciado, projeto:', state.project?.name, 'papel:', state.myRole);
+
         state.watchId = navigator.geolocation.watchPosition(
             (pos) => {
-                const { latitude, longitude } = pos.coords;
+                const { latitude, longitude, accuracy } = pos.coords;
                 updateCoordsDisplay(latitude, longitude);
-                if (state.points.length === 0) { addPoint(latitude, longitude, {}); map.setView([latitude, longitude], 16); }
-                else {
-                    const last = state.points[state.points.length - 1];
-                    if (haversine(last.lat, last.lng, latitude, longitude) >= 5) {
-                        addPoint(latitude, longitude, {}); map.setView([latitude, longitude], 16);
-                    }
-                }
+
+                // Posicao atual (azul)
                 if (currentPosMarker) currentPosMarker.setLatLng([latitude, longitude]);
                 else currentPosMarker = L.marker([latitude, longitude], { icon: currentPosIcon }).addTo(map);
+
+                // Decide se cria novo ponto baseado em distancia do ULTIMO ponto rastreado
+                // (nao usa state.points pra evitar race com addPoint async)
+                const last = state.lastTrackLatLng;
+                const distM = last ? haversine(last.lat, last.lng, latitude, longitude) : Infinity;
+                const moved = !last || distM >= 5;
+
+                if (moved) {
+                    // Marca ANTES de chamar addPoint pra proxima callback ver a nova posicao
+                    state.lastTrackLatLng = { lat: latitude, lng: longitude };
+                    console.log(`[cc] rastreio: ponto adicionado (acc=${accuracy?.toFixed(0)}m, mov=${last ? distM.toFixed(1) : '-'}m)`);
+                    addPoint(latitude, longitude, {});
+                    map.setView([latitude, longitude], Math.max(map.getZoom(), 16));
+                }
             },
-            (err) => { alert(`Erro: ${err.message}`); toggleTracking(); },
+            (err) => {
+                console.error('[cc] tracking GPS error', err);
+                alert(`Erro GPS no rastreio: ${err.message}\n\nVerifique se o GPS esta ligado e a permissao foi concedida.`);
+                toggleTracking();
+            },
             { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
         );
     }
@@ -1418,6 +1449,10 @@ function parseKmlCoordsString(s) {
     }).filter((v) => isFinite(v.lat) && isFinite(v.lng));
 }
 
+function isValidLatLng(lat, lng) {
+    return isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
 function extractFromGeoJSON(geojson) {
     const features = geojson?.type === 'FeatureCollection'
         ? (geojson.features || [])
@@ -1511,7 +1546,15 @@ async function importFile(file) {
             const geojson = await window.shp(buf);
             // shpjs pode retornar array (multiplos shp dentro do zip)
             const layers = Array.isArray(geojson) ? geojson : [geojson];
-            layers.forEach((layer) => {
+            console.log(`[cc] shapefile "${file.name}": ${layers.length} layer(s)`);
+            layers.forEach((layer, li) => {
+                const fc = layer.features || [];
+                const first = fc[0];
+                console.log(`[cc]  layer ${li}: ${fc.length} feature(s), tipo geom = ${first?.geometry?.type || '(vazio)'}`);
+                if (first?.geometry?.coordinates) {
+                    const flat = JSON.stringify(first.geometry.coordinates).slice(0, 240);
+                    console.log(`[cc]  layer ${li} amostra coords: ${flat}${flat.length === 240 ? '...' : ''}`);
+                }
                 const r = extractFromGeoJSON(layer);
                 pts.push(...r.pts); polys.push(...r.polys);
             });
@@ -1583,17 +1626,62 @@ async function importFile(file) {
 
         if (!pts.length && !polys.length) { alert('Nenhum dado valido encontrado no arquivo.'); return; }
 
-        polys.forEach((p) => { p.source = sourceLbl; });
-        const createdPts = pts.length
-            ? await window.cc.store.bulkCreatePoints(state.project.id, pts, state.points.length)
+        // ===== Validacao de CRS =====
+        // Detecta se geometrias estao em sistema PROJETADO (UTM, etc.) ao inves de WGS84.
+        // Se a maioria das coordenadas estao fora de lat/lng valido, e' projetado.
+        const allCoords = [
+            ...pts.map((p) => ({ lat: p.lat, lng: p.lng })),
+            ...polys.flatMap((p) => p.vertices),
+        ];
+        const invalidCount = allCoords.filter((c) => !isValidLatLng(c.lat, c.lng)).length;
+        console.log(`[cc] import ${sourceLbl}: ${pts.length} pontos, ${polys.length} poligonos, ${invalidCount}/${allCoords.length} coords fora de lat/lng`);
+        if (allCoords.length > 0) {
+            const sample = allCoords[0];
+            console.log(`[cc] primeira coordenada: lat=${sample.lat}, lng=${sample.lng}`);
+        }
+
+        if (invalidCount > allCoords.length * 0.5) {
+            const sample = allCoords[0];
+            const msg = `ATENCAO: Coordenadas fora do padrao WGS84 (lat/lng).\n\n` +
+                `Primeiro valor: lat=${sample?.lat?.toFixed(2)}, lng=${sample?.lng?.toFixed(2)}\n` +
+                `(WGS84 deve ter lat entre -90 e 90, lng entre -180 e 180)\n\n` +
+                `O shapefile esta provavelmente em sistema PROJETADO (UTM, Mercator, etc).\n\n` +
+                `SOLUCAO no QGIS:\n` +
+                `  1. Botao direito na camada -> "Exportar" -> "Salvar Recursos Como"\n` +
+                `  2. CRS: escolha "EPSG:4326 - WGS84"\n` +
+                `  3. Salve como novo shapefile\n` +
+                `  4. Importe o novo arquivo aqui\n\n` +
+                `Importar mesmo assim? Os dados nao aparecerao no mapa.`;
+            if (!confirm(msg)) return;
+        }
+
+        // Filtra geometrias com vertices invalidos antes de salvar/renderizar (evita crash do Leaflet)
+        const validPts = pts.filter((p) => isValidLatLng(p.lat, p.lng));
+        const validPolys = polys
+            .map((p) => ({ ...p, vertices: p.vertices.filter((v) => isValidLatLng(v.lat, v.lng)) }))
+            .filter((p) => p.vertices.length >= 2);
+        const droppedPts = pts.length - validPts.length;
+        const droppedPolys = polys.length - validPolys.length;
+        if (droppedPts || droppedPolys) {
+            console.warn(`[cc] descartados: ${droppedPts} pontos, ${droppedPolys} poligonos com coordenadas invalidas`);
+        }
+
+        validPolys.forEach((p) => { p.source = sourceLbl; });
+        const createdPts = validPts.length
+            ? await window.cc.store.bulkCreatePoints(state.project.id, validPts, state.points.length)
             : [];
-        const createdPolys = polys.length
-            ? await window.cc.store.bulkCreatePolygons(state.project.id, polys)
+        const createdPolys = validPolys.length
+            ? await window.cc.store.bulkCreatePolygons(state.project.id, validPolys)
             : [];
         state.points.push(...createdPts);
         state.polygons.push(...createdPolys);
         renderAll(); fitBounds();
-        alert(`Importacao: ${createdPts.length} pontos, ${createdPolys.length} poligonos.`);
+
+        let resumo = `Importacao: ${createdPts.length} pontos, ${createdPolys.length} poligonos.`;
+        if (droppedPts || droppedPolys) {
+            resumo += `\n\nDescartados: ${droppedPts} pontos e ${droppedPolys} poligonos com coordenadas invalidas. Veja o console (F12) para detalhes.`;
+        }
+        alert(resumo);
     } catch (err) {
         console.error('Erro import:', err);
         alert('Erro ao importar: ' + (err.message || err));
