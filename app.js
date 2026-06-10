@@ -729,6 +729,10 @@ function addPointWithLabel(lat, lng) {
 async function editPoint(index) {
     const p = state.points[index];
     if (!p) return;
+    if (!canEditPoint(p)) {
+        alert('Apenas o autor do ponto ou um administrador pode editar este ponto.');
+        return;
+    }
     openLabelModal(p.lat, p.lng, async (meta) => {
         try {
             await window.cc.store.updatePoint(p.id, state.project.id, meta);
@@ -743,6 +747,11 @@ async function editPoint(index) {
 async function removePoint(index) {
     const p = state.points[index];
     if (!p) return;
+    if (!canEditPoint(p)) {
+        alert('Apenas o autor do ponto ou um administrador pode remover este ponto.');
+        return;
+    }
+    if (!confirm(`Remover ponto "${p.label || `#${index + 1}`}"?`)) return;
     state.points.splice(index, 1);
     renderAll();
     try {
@@ -900,6 +909,13 @@ elevCanvas.addEventListener('mouseleave', () => elevTooltip.classList.add('hidde
 // ============================================================
 // RENDERIZACAO MAPA
 // ============================================================
+function canEditPoint(point) {
+    const uid = window.cc?.auth?.getUser?.()?.id;
+    if (!uid) return false;
+    if (state.myRole === 'admin') return true;
+    return point.user_id === uid;
+}
+
 function renderMap() {
     markersLayer.clearLayers(); pathLayer.clearLayers();
     if (state.points.length === 0) return;
@@ -910,12 +926,41 @@ function renderMap() {
         const elevStr = elev != null ? `<br><span style="color:#569cd6;font-size:12px">Elev: ${elev.toFixed(0)} m</span>` : '';
         const photoStr = point.photo ? `<br><img src="${point.photo}" style="width:120px;border-radius:4px;margin-top:4px">` : '';
         const catStr = point.category ? `<br><span style="color:#888;font-size:11px">${point.category}</span>` : '';
-        const marker = L.marker([point.lat, point.lng], { icon: createIcon(i, point.color) })
-            .bindPopup(
-                `<b style="color:${point.color || '#4ec9b0'};font-size:14px">${labelText}</b>${catStr}<br>` +
-                `<span style="color:#999;font-size:12px">${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}</span>` +
-                elevStr + photoStr + `<br><small style="color:#666">${new Date(point.timestamp).toLocaleString('pt-BR')}</small>`
-            );
+        const draggable = canEditPoint(point);
+        const dragHint = draggable ? `<br><small style="color:#4ec9b0;font-size:11px"><i>Arraste para mover</i></small>` : '';
+        const marker = L.marker([point.lat, point.lng], {
+            icon: createIcon(i, point.color),
+            draggable,
+        }).bindPopup(
+            `<b style="color:${point.color || '#4ec9b0'};font-size:14px">${labelText}</b>${catStr}<br>` +
+            `<span style="color:#999;font-size:12px">${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}</span>` +
+            elevStr + photoStr + `<br><small style="color:#666">${new Date(point.timestamp).toLocaleString('pt-BR')}</small>` +
+            dragHint
+        );
+
+        if (draggable) {
+            const oldLat = point.lat, oldLng = point.lng;
+            marker.on('dragend', async () => {
+                const { lat, lng } = marker.getLatLng();
+                // Atualiza state otimistamente
+                point.lat = lat;
+                point.lng = lng;
+                renderAll();
+                try {
+                    await window.cc.store.updatePoint(point.id, state.project.id, { lat, lng });
+                    if (typeof showToast === 'function') {
+                        showToast(`Ponto #${i + 1} movido.`, 'success', 2000);
+                    }
+                } catch (err) {
+                    // Reverte em caso de falha
+                    point.lat = oldLat;
+                    point.lng = oldLng;
+                    renderAll();
+                    alert('Erro ao mover ponto: ' + (err.message || err));
+                }
+            });
+        }
+
         if (point.label) marker.bindTooltip(point.label, { permanent: true, direction: 'top', offset: [0, -14], className: 'label-tooltip' });
         markersLayer.addLayer(marker);
     });
@@ -945,8 +990,15 @@ function renderPointsList() {
         const elev = elevationData[i];
         const elevD = elev != null ? `<span class="point-elev">${elev.toFixed(0)}m</span>` : '';
         const photoIcon = point.photo ? '<i class="codicon codicon-device-camera point-photo-icon"></i>' : '';
+        const editable = canEditPoint(point);
+        const editControls = editable
+            ? `
+                <button class="point-label-edit" onclick="editPoint(${i})" title="Editar"><i class="codicon codicon-edit"></i></button>
+                <button class="btn-remove" onclick="removePoint(${i})" title="Remover"><i class="codicon codicon-close"></i></button>
+              `
+            : `<i class="point-locked codicon codicon-lock" title="So o autor ou admin pode editar/remover"></i>`;
         const div = document.createElement('div');
-        div.className = 'point-item';
+        div.className = 'point-item' + (editable ? '' : ' point-readonly');
         div.innerHTML = `
             <span class="point-color-dot" style="background:${point.color || '#4ec9b0'}"></span>
             <span class="point-index">#${i + 1}</span>
@@ -954,9 +1006,8 @@ function renderPointsList() {
             <span class="point-coords">${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}</span>
             ${elevD} ${photoIcon}
             <span class="point-time">${time}</span>
-            <button class="point-label-edit" onclick="editPoint(${i})" title="Editar"><i class="codicon codicon-edit"></i></button>
             <button class="btn-focus" onclick="focusPoint(${i})" title="Focar"><i class="codicon codicon-eye"></i></button>
-            <button class="btn-remove" onclick="removePoint(${i})" title="Remover"><i class="codicon codicon-close"></i></button>
+            ${editControls}
         `;
         pointsContainer.appendChild(div);
     });

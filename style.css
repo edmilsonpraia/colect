@@ -382,6 +382,20 @@ button .codicon { font-size: 14px; }
     .point-item:hover .btn-remove, .point-item:hover .btn-focus, .point-item:hover .point-label-edit { opacity: 1; }
 }
 
+/* Read-only points (visualizador ou ponto de outro autor) */
+.point-readonly { opacity: 0.92; }
+.point-locked {
+    color: var(--text-dim2);
+    font-size: 13px;
+    padding: 4px 8px;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Hint visual: marker arrastavel ganha cursor de mover */
+.leaflet-marker-draggable .custom-marker { cursor: move; }
+.leaflet-marker-draggable .custom-marker > div { box-shadow: 0 2px 8px rgba(78, 201, 176, 0.6); }
+
 /* ============================================================
    AUTH SCREEN
    ============================================================ */
