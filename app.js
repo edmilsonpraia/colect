@@ -288,6 +288,8 @@ const state = {
     watchId: null,
     currentLat: null,
     currentLng: null,
+    currentAccuracy: null,    // metros - precisao GPS da ultima leitura (null = veio de map click)
+    maxAccuracy: 10,          // metros - leituras piores que isto sao descartadas em Rastreio
     measureMode: false,
     measurePoints: [],
 };
@@ -489,11 +491,29 @@ function updateRoleUI() {
 // ============================================================
 // COORDENADAS DISPLAY
 // ============================================================
-function updateCoordsDisplay(lat, lng) {
+function updateCoordsDisplay(lat, lng, accuracy) {
     state.currentLat = lat;
     state.currentLng = lng;
+    // Se accuracy foi passada (leitura GPS), atualiza; se undefined (click no mapa), reseta pra null
+    state.currentAccuracy = (accuracy != null) ? accuracy : null;
     latDisplay.textContent = `Lat: ${lat.toFixed(6)}`;
     lngDisplay.textContent = `Lng: ${lng.toFixed(6)}`;
+    updateAccuracyDisplay();
+}
+
+function updateAccuracyDisplay() {
+    const el = document.getElementById('acc-display');
+    if (!el) return;
+    if (state.currentAccuracy == null) {
+        el.textContent = '±--';
+        el.classList.remove('acc-good', 'acc-bad', 'acc-medium');
+        return;
+    }
+    const a = state.currentAccuracy;
+    el.textContent = `±${a < 1 ? a.toFixed(1) : a.toFixed(0)}m`;
+    el.classList.toggle('acc-good', a <= state.maxAccuracy);
+    el.classList.toggle('acc-medium', a > state.maxAccuracy && a <= state.maxAccuracy * 3);
+    el.classList.toggle('acc-bad', a > state.maxAccuracy * 3);
 }
 
 // ============================================================
@@ -558,7 +578,7 @@ function getLocation() {
             const { latitude, longitude, accuracy } = pos.coords;
             attempts++;
 
-            updateCoordsDisplay(latitude, longitude);
+            updateCoordsDisplay(latitude, longitude, accuracy);
 
             // Atualizar marcador
             if (currentPosMarker) {
@@ -589,7 +609,8 @@ function getLocation() {
             if (accuracy < bestAccuracy) bestAccuracy = accuracy;
             const elapsed = Date.now() - startTime;
 
-            if (accuracy <= 20 || attempts >= maxAttempts || elapsed >= timeoutLimit) {
+            // Alvo dinamico: usa o maxAccuracy configurado (default 10m)
+            if (accuracy <= state.maxAccuracy || attempts >= maxAttempts || elapsed >= timeoutLimit) {
                 navigator.geolocation.clearWatch(locateWatchId);
                 locateWatchId = null;
                 btnLocate.innerHTML = '<i class="codicon codicon-compass"></i><span>Localizar</span>';
@@ -1348,26 +1369,40 @@ function fitBounds() {
 function loadTrackPrefs() {
     try {
         const raw = localStorage.getItem('cc-track-prefs');
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+            const p = JSON.parse(raw);
+            return {
+                mode: p.mode || 'points',
+                interval: p.interval || 10,
+                maxAccuracy: p.maxAccuracy || 10,
+            };
+        }
     } catch (_) {}
-    return { mode: 'points', interval: 10 };
+    return { mode: 'points', interval: 10, maxAccuracy: 10 };
 }
 function saveTrackPrefs(prefs) {
     try { localStorage.setItem('cc-track-prefs', JSON.stringify(prefs)); } catch (_) {}
 }
+// Carrega maxAccuracy nas prefs no arranque
+state.maxAccuracy = loadTrackPrefs().maxAccuracy;
 
 const trackConfigOverlay = $('track-config-overlay');
 const trackIntervalInput = $('track-interval');
+const trackAccuracyInput = $('track-accuracy');
 const trackStartBtn = $('track-start');
 const trackCancelBtn = $('track-cancel');
 const trackModeButtons = document.querySelectorAll('.track-mode-btn');
 const trackPresetButtons = document.querySelectorAll('.track-preset');
+const trackAccPresetButtons = document.querySelectorAll('.track-preset-acc');
 
 function setTrackModeUI(mode) {
     trackModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
 }
 function setTrackPresetUI(interval) {
     trackPresetButtons.forEach((b) => b.classList.toggle('active', +b.dataset.preset === interval));
+}
+function setTrackAccPresetUI(acc) {
+    trackAccPresetButtons.forEach((b) => b.classList.toggle('active', +b.dataset.preset === acc));
 }
 
 trackModeButtons.forEach((b) => {
@@ -1380,8 +1415,18 @@ trackPresetButtons.forEach((b) => {
         setTrackPresetUI(v);
     });
 });
+trackAccPresetButtons.forEach((b) => {
+    b.addEventListener('click', () => {
+        const v = +b.dataset.preset;
+        if (trackAccuracyInput) trackAccuracyInput.value = v;
+        setTrackAccPresetUI(v);
+    });
+});
 trackIntervalInput?.addEventListener('input', () => {
     setTrackPresetUI(+trackIntervalInput.value);
+});
+trackAccuracyInput?.addEventListener('input', () => {
+    setTrackAccPresetUI(+trackAccuracyInput.value);
 });
 trackCancelBtn?.addEventListener('click', () => trackConfigOverlay.classList.add('hidden'));
 trackConfigOverlay?.addEventListener('click', (e) => {
@@ -1391,7 +1436,10 @@ trackConfigOverlay?.addEventListener('click', (e) => {
 trackStartBtn?.addEventListener('click', () => {
     const mode = document.querySelector('.track-mode-btn.active')?.dataset.mode || 'points';
     const interval = Math.max(1, Math.min(1000, parseInt(trackIntervalInput.value, 10) || 10));
-    saveTrackPrefs({ mode, interval });
+    const maxAccuracy = Math.max(1, Math.min(100, parseInt(trackAccuracyInput?.value || '10', 10) || 10));
+    saveTrackPrefs({ mode, interval, maxAccuracy });
+    state.maxAccuracy = maxAccuracy;
+    updateAccuracyDisplay();
     trackConfigOverlay.classList.add('hidden');
     startTracking(mode, interval);
 });
@@ -1405,6 +1453,8 @@ function openTrackConfig() {
     setTrackModeUI(prefs.mode);
     trackIntervalInput.value = prefs.interval;
     setTrackPresetUI(prefs.interval);
+    if (trackAccuracyInput) trackAccuracyInput.value = prefs.maxAccuracy;
+    setTrackAccPresetUI(prefs.maxAccuracy);
     trackConfigOverlay.classList.remove('hidden');
 }
 
@@ -1436,11 +1486,17 @@ function startTracking(mode, interval) {
     state.watchId = navigator.geolocation.watchPosition(
         (pos) => {
             const { latitude, longitude, accuracy } = pos.coords;
-            updateCoordsDisplay(latitude, longitude);
+            updateCoordsDisplay(latitude, longitude, accuracy);
 
-            // Posicao atual (marker azul)
+            // Posicao atual (marker azul) - sempre atualiza mesmo se accuracy for baixa
             if (currentPosMarker) currentPosMarker.setLatLng([latitude, longitude]);
             else currentPosMarker = L.marker([latitude, longitude], { icon: currentPosIcon }).addTo(map);
+
+            // FILTRO DE PRECISAO: descarta leituras piores que o limite (evita pontos em local errado)
+            if (accuracy != null && accuracy > state.maxAccuracy) {
+                console.log(`[cc] rastreio: leitura DESCARTADA (acc=${accuracy.toFixed(0)}m > limite ${state.maxAccuracy}m)`);
+                return;
+            }
 
             const last = state.lastTrackLatLng;
             const distM = last ? haversine(last.lat, last.lng, latitude, longitude) : Infinity;
@@ -1449,7 +1505,6 @@ function startTracking(mode, interval) {
             if (moved) {
                 state.lastTrackLatLng = { lat: latitude, lng: longitude };
                 console.log(`[cc] rastreio ${state.trackingMode}: ponto (acc=${accuracy?.toFixed(0)}m, mov=${last ? distM.toFixed(1) : '-'}m, int=${state.trackingInterval}m)`);
-                // Marca com categoria para diferenciar no render (trajeto vs ponto)
                 addPoint(latitude, longitude, {
                     category: state.trackingMode === 'line' ? 'trajeto' : '',
                     color: state.trackingMode === 'line' ? '#569cd6' : '#4ec9b0',
@@ -1915,8 +1970,21 @@ async function loadFromHash() {
 // ============================================================
 btnLocate.addEventListener('click', getLocation);
 btnAdd.addEventListener('click', () => {
-    if (state.currentLat !== null && state.currentLng !== null) addPointWithLabel(state.currentLat, state.currentLng);
-    else alert('Primeiro obtenha sua localizacao ou clique no mapa.');
+    if (state.currentLat === null || state.currentLng === null) {
+        alert('Primeiro obtenha sua localizacao ou clique no mapa.');
+        return;
+    }
+    // Filtro de precisao: so aplica se coords vieram de GPS (accuracy != null).
+    // Click no mapa reseta accuracy para null (nao ha check de precisao).
+    if (state.currentAccuracy != null && state.currentAccuracy > state.maxAccuracy) {
+        const ok = confirm(
+            `Precisao GPS atual: +/-${state.currentAccuracy.toFixed(0)}m (limite ${state.maxAccuracy}m).\n\n` +
+            `A leitura pode estar em posicao errada. Adicionar mesmo assim?\n` +
+            `(Recomendado: clicar Localizar novamente e esperar melhorar)`
+        );
+        if (!ok) return;
+    }
+    addPointWithLabel(state.currentLat, state.currentLng);
 });
 btnTrack.addEventListener('click', toggleTracking);
 btnClear.addEventListener('click', clearPoints);
