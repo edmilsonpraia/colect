@@ -29,6 +29,14 @@
         });
     }
 
+    // ====== AUTH HELPER ======
+    function hasAuth() {
+        return !!window.cc?.auth?.getUser?.();
+    }
+    function currentUserId() {
+        return window.cc?.auth?.getUser?.()?.id || null;
+    }
+
     // ====== FILA DE OPERACOES PENDENTES ======
     function getPending() {
         try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); }
@@ -81,15 +89,31 @@
 
     // ====== PROJETOS ======
     async function listProjects() {
+        const r = await listProjectsWithSource();
+        return r.data;
+    }
+
+    // Versao explicita: retorna { data, source, error }
+    //   source: 'db'    -> resposta fresca do servidor
+    //           'cache' -> queda para cache local (falha de rede)
+    //           'error' -> falha (ex: sem auth); data pode estar vazia
+    async function listProjectsWithSource() {
+        if (!hasAuth()) {
+            return { data: [], source: 'error', error: 'unauthenticated' };
+        }
         try {
             const { data, error } = await sb.from('projects')
                 .select('*').order('created_at', { ascending: true });
             if (error) throw error;
-            writeCache(CACHE_PROJECTS_KEY, data);
-            return data;
+            writeCache(CACHE_PROJECTS_KEY, data || []);
+            return { data: data || [], source: 'db' };
         } catch (err) {
             console.warn('[cc.store] listProjects fallback cache:', err.message);
-            return readCache(CACHE_PROJECTS_KEY, []);
+            return {
+                data: readCache(CACHE_PROJECTS_KEY, []),
+                source: 'cache',
+                error: err.message,
+            };
         }
     }
 
@@ -109,13 +133,29 @@
         cached.push(row);
         writeCache(CACHE_PROJECTS_KEY, cached);
 
+        // IMPORTANTE: NAO usa .select().single() aqui.
+        // O trigger `add_creator_as_admin` adiciona o user em project_members apos o INSERT,
+        // mas o RETURNING (SELECT policy is_member_of) pode falhar em ver a linha no snapshot MVCC
+        // antes do trigger. Resultado: INSERT OK, mas RETURNING vazio -> .single() lanca erro,
+        // client acha que falhou -> enfileira ops que ficam presas.
+        //
+        // Solucao: apenas INSERT (sem RETURNING) e retornar a linha local (mesmo ID e dados).
         try {
-            const { data, error } = await sb.from('projects')
-                .insert({ id, name: row.name, owner_id: user.id })
-                .select().single();
+            const { error } = await sb.from('projects')
+                .insert({ id, name: row.name, owner_id: user.id });
             if (error) throw error;
-            return data;
+            console.log('[cc.store] createProject OK:', id, row.name);
+            return row;
         } catch (err) {
+            // 23505 = UNIQUE constraint (owner_id, name). Nao adianta enfileirar - ja existe.
+            if (err?.code === '23505') {
+                console.warn('[cc.store] createProject: ja existe projeto com esse nome');
+                // Remove do cache otimista - a linha nao vai persistir
+                const filtered = readCache(CACHE_PROJECTS_KEY, []).filter((p) => p.id !== id);
+                writeCache(CACHE_PROJECTS_KEY, filtered);
+                throw new Error('Ja existe um projeto com esse nome');
+            }
+            console.warn('[cc.store] createProject falhou, enfileirando:', err.message);
             enqueue({ type: 'project.create', payload: { id, name: row.name, owner_id: user.id } });
             return row;
         }
@@ -514,11 +554,57 @@
         return data?.role || null;
     }
 
+    // ====== FILA - LIMPEZA / DIAGNOSTICO ======
+    // Limpa toda a fila, ou apenas as ops que match do filter(op)
+    function clearPendingOps(filter) {
+        if (!filter) {
+            localStorage.removeItem(PENDING_KEY);
+            notify('pending');
+            return;
+        }
+        const ops = getPending();
+        const remaining = ops.filter((op) => !filter(op));
+        setPending(remaining);
+        notify('pending');
+    }
+    // Remove ops que ja fizeram mais que maxRetries falhas
+    function pruneStaleOps(maxRetries = 5) {
+        const ops = getPending();
+        const remaining = ops.filter((op) => (op.retries || 0) < maxRetries);
+        const removed = ops.length - remaining.length;
+        if (removed > 0) {
+            console.warn(`[cc.store] pruneStaleOps: ${removed} op(s) descartadas por excesso de tentativas`);
+            setPending(remaining);
+            notify('pending');
+        }
+        return removed;
+    }
+    // Dump para diagnostico (accessible via window.cc.debug)
+    function debug() {
+        const user = window.cc?.auth?.getUser?.();
+        const session = window.cc?.auth?.getSession?.();
+        return {
+            auth: {
+                userId: user?.id || null,
+                email: user?.email || null,
+                expiresAt: session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+                hasSession: !!session,
+            },
+            online: navigator.onLine,
+            pendingCount: getPending().length,
+            pendingOps: getPending().map((op) => ({ type: op.type, retries: op.retries || 0, id: op.id })),
+            cachedProjects: readCache(CACHE_PROJECTS_KEY, []).map((p) => ({ id: p.id, name: p.name, owner_id: p.owner_id })),
+            activeProjectId: getActiveProjectId(),
+        };
+    }
+
     // ====== SYNC ======
     let syncing = false;
     async function syncPending() {
         if (syncing) return { synced: 0, failed: 0, skipped: true };
         if (!navigator.onLine) return { synced: 0, failed: 0, offline: true };
+        // NAO tenta sync sem auth valido - senao as ops falham com 403 e poluem log
+        if (!hasAuth()) return { synced: 0, failed: 0, unauthenticated: true };
         const ops = getPending();
         if (!ops.length) return { synced: 0, failed: 0 };
 
@@ -531,8 +617,14 @@
             try {
                 switch (op.type) {
                     case 'project.create':
-                        // upsert: idempotente em retry
-                        await sb.from('projects').upsert(op.payload).throwOnError();
+                        // Insert com ignoreDuplicates: idempotente sem sobrescrever dados existentes
+                        try {
+                            await sb.from('projects').insert(op.payload).throwOnError();
+                        } catch (e) {
+                            // Se ja existe (UNIQUE ou PK), consideramos sucesso
+                            if (e?.code === '23505') break;
+                            throw e;
+                        }
                         break;
                     case 'project.rename':
                         await sb.from('projects').update({ name: op.payload.name })
@@ -591,7 +683,8 @@
     window.cc = window.cc || {};
     window.cc.store = {
         // projects
-        listProjects, createProject, renameProject, deleteProject,
+        listProjects, listProjectsWithSource,
+        createProject, renameProject, deleteProject,
         getActiveProjectId, setActiveProjectId,
         // points
         listPoints, createPoint, updatePoint, deletePoint, clearPoints, bulkCreatePoints,
@@ -602,8 +695,10 @@
         getDashboard, getMyRole,
         // reports
         getActivities, listProjectPhotos,
-        // sync / events
+        // sync / events / diagnostics
         syncPending, pendingCount, onChange,
+        clearPendingOps, pruneStaleOps, debug,
+        hasAuth,
         // utils
         uuid,
     };

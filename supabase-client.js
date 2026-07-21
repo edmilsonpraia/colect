@@ -26,13 +26,43 @@
     const listeners = new Set();
     let currentSession = null;
 
+    function isExpiringSoon(session) {
+        if (!session?.expires_at) return false;
+        // Buffer de 60s: nao usa tokens prestes a expirar
+        return (session.expires_at * 1000) < (Date.now() + 60000);
+    }
+
     async function init() {
-        const { data } = await client.auth.getSession();
-        currentSession = data.session;
-        client.auth.onAuthStateChange((_event, session) => {
-            currentSession = session;
+        let session = null;
+        try {
+            const { data, error } = await client.auth.getSession();
+            if (error) throw error;
+            session = data.session;
+        } catch (err) {
+            console.warn('[cc.auth] getSession falhou:', err.message);
+        }
+
+        // Se sessao esta expirada/expirando, tenta refresh; se falhar, limpa
+        if (session && isExpiringSoon(session)) {
+            console.log('[cc.auth] sessao expirando, tentando refresh...');
+            try {
+                const { data: r, error: rErr } = await client.auth.refreshSession();
+                if (rErr || !r?.session) throw rErr || new Error('sem sessao apos refresh');
+                session = r.session;
+                console.log('[cc.auth] refresh OK');
+            } catch (err) {
+                console.warn('[cc.auth] refresh falhou, limpando sessao:', err.message);
+                try { await client.auth.signOut({ scope: 'local' }); } catch (_) {}
+                session = null;
+            }
+        }
+
+        currentSession = session;
+
+        client.auth.onAuthStateChange((_event, s) => {
+            currentSession = s;
             listeners.forEach((cb) => {
-                try { cb(session); } catch (e) { console.error(e); }
+                try { cb(s); } catch (e) { console.error(e); }
             });
         });
         return currentSession;

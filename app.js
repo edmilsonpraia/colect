@@ -282,6 +282,9 @@ const state = {
     projects: [],       // [{ id, name, ... }]
     myRole: null,       // 'admin' | 'collaborator' | 'viewer'
     tracking: false,
+    trackingMode: null,       // 'points' | 'line' - modo do rastreio ativo
+    trackingInterval: 10,     // metros minimos entre pontos rastreados
+    lastTrackLatLng: null,    // { lat, lng } - ultimo ponto marcado pelo rastreio
     watchId: null,
     currentLat: null,
     currentLng: null,
@@ -3141,12 +3144,35 @@ cmOverlay.addEventListener('click', (e) => {
 // ============================================================
 async function bootstrapApp() {
     try {
-        state.projects = await window.cc.store.listProjects();
+        // Descarta ops "podres" que ja falharam >5x (limpeza defensiva)
+        window.cc.store.pruneStaleOps(5);
 
-        // Primeiro acesso: cria projeto inicial
-        if (!state.projects.length) {
+        const { data, source, error } = await window.cc.store.listProjectsWithSource();
+        state.projects = data || [];
+
+        if (error === 'unauthenticated') {
+            // Auth nao esta valido - login screen ja deve estar visivel
+            console.warn('[cc] bootstrap: sem autenticacao valida, aguardando login');
+            return;
+        }
+
+        // SO auto-cria projeto se a resposta veio FRESCA do servidor e esta vazia
+        // (sem essa checagem, qualquer falha de rede cria um "Meu Projeto" duplicado)
+        if (!state.projects.length && source === 'db') {
+            console.log('[cc] primeiro acesso do usuario, criando projeto inicial');
             const first = await window.cc.store.createProject('Meu Projeto');
             state.projects = [first];
+        } else if (!state.projects.length && source === 'cache') {
+            console.warn('[cc] listProjects falhou e cache local vazio - NAO criando projeto novo');
+            if (typeof showToast === 'function') {
+                showToast('Nao foi possivel carregar projetos. Verifique conexao e recarregue.', 'error', 6000);
+            }
+            return;
+        }
+
+        if (!state.projects.length) {
+            console.warn('[cc] bootstrap: sem projetos, aguardando acao do usuario');
+            return;
         }
 
         // Escolhe projeto ativo
@@ -3178,8 +3204,70 @@ window.addEventListener('cc:signedout', () => {
     state.myRole = null;
     elevationCache = {};
     elevationData = [];
+
+    // Limpa fila de ops pendentes (podem ser de usuario anterior - evita 403s no proximo login)
+    try { window.cc.store.clearPendingOps(); } catch (_) {}
+
     renderProjectSelect();
     renderAll();
     updateSyncIndicator();
     dashboardOverlay?.classList.add('hidden');
 });
+
+// ============================================================
+// DEBUG UTILITY - acessivel no console via window.cc.debug
+// ============================================================
+window.cc = window.cc || {};
+window.cc.debug = {
+    // Dump completo de estado (auth + fila + projeto + cache)
+    state() {
+        const dump = {
+            ...window.cc.store.debug(),
+            currentProject: state.project ? { id: state.project.id, name: state.project.name, owner_id: state.project.owner_id } : null,
+            myRole: state.myRole,
+            projectsCount: state.projects.length,
+            pointsCount: state.points.length,
+            polygonsCount: state.polygons.length,
+            rastersCount: state.rasters.length,
+            tracking: {
+                active: state.tracking,
+                mode: state.trackingMode,
+                interval: state.trackingInterval,
+            },
+        };
+        console.table(dump.auth);
+        console.log('%c[cc.debug] Estado completo:', 'color:#0e639c;font-weight:bold', dump);
+        if (dump.pendingCount > 0) {
+            console.warn(`[cc.debug] Ha ${dump.pendingCount} operacoes pendentes:`);
+            console.table(dump.pendingOps);
+        }
+        return dump;
+    },
+    // Limpa fila de operacoes pendentes
+    clearQueue() {
+        window.cc.store.clearPendingOps();
+        console.log('[cc.debug] Fila limpa');
+    },
+    // Forca sincronizacao imediata
+    async sync() {
+        const r = await window.cc.store.syncPending();
+        console.log('[cc.debug] sync result:', r);
+        return r;
+    },
+    // Emergencia: limpa TUDO (localStorage + caches + service workers + reload)
+    async nuke() {
+        if (!confirm('Vai apagar TUDO (localStorage, caches, service workers) e recarregar. Confirma?')) return;
+        localStorage.clear();
+        sessionStorage.clear();
+        if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const r of regs) await r.unregister();
+        }
+        if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+        console.log('[cc.debug] Tudo limpo. Recarregando...');
+        setTimeout(() => location.reload(), 500);
+    },
+};
