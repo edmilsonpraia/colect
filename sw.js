@@ -1,4 +1,4 @@
-const CACHE_NAME = 'copia-colect-v15';
+const CACHE_NAME = 'copia-colect-v16';
 const TILE_CACHE = 'copia-colect-tiles-v1';
 
 // Local assets (devem existir, falha bloqueia install)

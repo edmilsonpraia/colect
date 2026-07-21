@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório Executivo — Cópia Colect</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #0e639c;
+            --primary-dark: #054170;
+            --accent: #4ec9b0;
+            --danger: #c72e42;
+            --warning: #cc6633;
+            --gray-900: #1a1a1a;
+            --gray-700: #333;
+            --gray-500: #666;
+            --gray-300: #ccc;
+            --gray-100: #f5f5f5;
+            --gray-50: #fafafa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: var(--gray-900);
+            background: var(--gray-100);
+            line-height: 1.5;
+            padding: 20px;
+        }
+        .page {
+            background: #fff;
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 20px;
+            padding: 20mm 18mm;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            page-break-after: always;
+            position: relative;
+        }
+        .page:last-child { page-break-after: auto; }
+
+        /* CAPA */
+        .cover {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            text-align: center;
+        }
+        .cover-top {
+            padding-top: 60mm;
+        }
+        .cover img {
+            width: 90px; height: 90px; border-radius: 18px;
+            margin-bottom: 24px;
+        }
+        .cover h1 {
+            font-size: 34pt;
+            color: var(--primary-dark);
+            font-weight: 700;
+            letter-spacing: -0.5pt;
+            margin-bottom: 8px;
+        }
+        .cover h2 {
+            font-size: 16pt;
+            color: var(--gray-500);
+            font-weight: 400;
+            margin-bottom: 40px;
+        }
+        .cover-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: #fff;
+            padding: 10px 24px;
+            border-radius: 30px;
+            font-size: 11pt;
+            font-weight: 600;
+            letter-spacing: 0.5pt;
+        }
+        .cover-meta {
+            padding-bottom: 40mm;
+            font-size: 11pt;
+            color: var(--gray-500);
+        }
+        .cover-meta div { margin: 4px 0; }
+        .cover-meta b { color: var(--gray-700); }
+
+        /* HEADER de páginas internas */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 8px;
+            margin-bottom: 20px;
+        }
+        .page-header .brand {
+            font-size: 11pt;
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .page-header .page-num {
+            font-size: 9pt;
+            color: var(--gray-500);
+        }
+
+        h3.section {
+            font-size: 20pt;
+            color: var(--primary-dark);
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.3pt;
+        }
+        h4 {
+            font-size: 13pt;
+            color: var(--gray-700);
+            margin: 18px 0 10px;
+            font-weight: 600;
+        }
+        p { font-size: 11pt; color: var(--gray-700); margin-bottom: 8px; }
+        p.lead { font-size: 12pt; margin-bottom: 20px; }
+
+        /* KPI GRID */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin: 20px 0;
+        }
+        .kpi {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #fff;
+            padding: 18px 16px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .kpi.accent { background: linear-gradient(135deg, var(--accent), #2a9d84); }
+        .kpi.warn { background: linear-gradient(135deg, var(--warning), #a34e1f); }
+        .kpi.danger { background: linear-gradient(135deg, var(--danger), #931f30); }
+        .kpi-value {
+            font-size: 30pt;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .kpi-label {
+            font-size: 10pt;
+            margin-top: 4px;
+            opacity: 0.95;
+            font-weight: 500;
+            letter-spacing: 0.3pt;
+        }
+        .kpi-sublabel {
+            font-size: 8.5pt;
+            opacity: 0.8;
+            margin-top: 2px;
+        }
+
+        /* CHARTS */
+        .chart-container {
+            background: var(--gray-50);
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 14px;
+            margin: 12px 0;
+        }
+        .chart-container h4 {
+            margin: 0 0 10px;
+            font-size: 12pt;
+            color: var(--primary-dark);
+        }
+        .chart-wrap {
+            position: relative;
+            height: 220px;
+        }
+        .chart-wrap.tall { height: 260px; }
+        .chart-wrap.short { height: 180px; }
+
+        /* TABELAS */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 10pt;
+        }
+        table th {
+            background: var(--primary);
+            color: #fff;
+            padding: 8px 10px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 9.5pt;
+        }
+        table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #e5e5e5;
+            font-size: 10pt;
+            color: var(--gray-700);
+        }
+        table tr:nth-child(even) td { background: var(--gray-50); }
+        table td.num { text-align: right; font-family: "Consolas", monospace; }
+        table td.center { text-align: center; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 9pt;
+            font-weight: 600;
+        }
+        .badge-admin { background: rgba(199, 46, 66, 0.15); color: var(--danger); }
+        .badge-collab { background: rgba(78, 201, 176, 0.15); color: #2a8f7c; }
+        .badge-viewer { background: rgba(86, 156, 214, 0.15); color: #3f7fb0; }
+
+        /* INSIGHT BOXES */
+        .insight {
+            background: #fff8ec;
+            border-left: 4px solid var(--warning);
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin: 12px 0;
+        }
+        .insight.critical { background: #fdecee; border-left-color: var(--danger); }
+        .insight.success { background: #eaf7f4; border-left-color: var(--accent); }
+        .insight.info { background: #e8f2fa; border-left-color: var(--primary); }
+        .insight-title {
+            font-weight: 700;
+            font-size: 11pt;
+            margin-bottom: 4px;
+            color: var(--gray-900);
+        }
+        .insight-body {
+            font-size: 10.5pt;
+            color: var(--gray-700);
+        }
+        .insight-body b { color: var(--gray-900); }
+
+        /* LISTA de recomendações */
+        ol.recs { padding-left: 22px; }
+        ol.recs li {
+            font-size: 10.5pt;
+            color: var(--gray-700);
+            margin: 8px 0;
+            padding-left: 4px;
+        }
+        ol.recs li b { color: var(--gray-900); }
+
+        /* FOOTER de páginas internas */
+        .page-footer {
+            position: absolute;
+            bottom: 15mm;
+            left: 18mm;
+            right: 18mm;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 6px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 8pt;
+            color: var(--gray-500);
+        }
+
+        /* PRINT */
+        @media print {
+            body { background: #fff; padding: 0; }
+            .page {
+                box-shadow: none;
+                margin: 0;
+                width: 210mm;
+                min-height: auto;
+                page-break-after: always;
+            }
+            .no-print { display: none !important; }
+            .kpi { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            table th, .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+
+        .print-tip {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            background: var(--primary);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 11pt;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .print-tip:hover { background: var(--primary-dark); }
+    </style>
+</head>
+<body>
+
+<button class="print-tip no-print" onclick="window.print()">🖨 Imprimir / Salvar como PDF</button>
+
+<!-- ============================ CAPA ============================ -->
+<div class="page cover">
+    <div class="cover-top">
+        <img src="ICONE CGC.jpg" alt="Cópia Colect" />
+        <h1>Cópia Colect</h1>
+        <h2>Relatório Executivo do Sistema</h2>
+        <div class="cover-badge">SNAPSHOT ANALÍTICO — JULHO 2026</div>
+    </div>
+    <div class="cover-meta">
+        <div><b>Período coberto:</b> 03 jun 2026 → 15 jul 2026 (43 dias)</div>
+        <div><b>Data do relatório:</b> 15 de julho de 2026</div>
+        <div><b>Fonte de dados:</b> Supabase (activity_log + tabelas operacionais)</div>
+        <div style="margin-top: 20px;"><b>Preparado para:</b> Administração do Cópia Colect</div>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 2 — RESUMO EXECUTIVO ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 2 de 7</div>
+    </div>
+
+    <h3 class="section">Resumo Executivo</h3>
+    <p class="lead">Panorama consolidado do uso do sistema desde o lançamento operacional em 03 de junho de 2026.</p>
+
+    <div class="kpi-grid">
+        <div class="kpi">
+            <div class="kpi-value">18</div>
+            <div class="kpi-label">Usuários Cadastrados</div>
+        </div>
+        <div class="kpi accent">
+            <div class="kpi-value">2</div>
+            <div class="kpi-label">Projetos Ativos</div>
+        </div>
+        <div class="kpi warn">
+            <div class="kpi-value">10</div>
+            <div class="kpi-label">Membros em Projetos</div>
+            <div class="kpi-sublabel">8 pessoas distintas</div>
+        </div>
+        <div class="kpi accent">
+            <div class="kpi-value">231</div>
+            <div class="kpi-label">Pontos Coletados</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-value">19</div>
+            <div class="kpi-label">Fotos Anexadas</div>
+        </div>
+        <div class="kpi danger">
+            <div class="kpi-value">2.037</div>
+            <div class="kpi-label">Eventos no Audit Log</div>
+        </div>
+    </div>
+
+    <div class="insight success">
+        <div class="insight-title">✓ Sistema em produção com uso real</div>
+        <div class="insight-body">
+            O projeto <b>Sondagem Geotécnica</b> apresenta 118 pontos coletados por 4 autores distintos, com 18 fotos de terreno — evidenciando uso real em trabalho de campo, não apenas testes.
+        </div>
+    </div>
+
+    <div class="insight">
+        <div class="insight-title">⚠ Alto índice de deleções vs. criações</div>
+        <div class="insight-body">
+            <b>439 pontos deletados</b> vs. <b>268 criados</b> nos últimos 30 dias. 98% dessas deleções (432) foram feitas por um único usuário: <b>Mauro Canhanga</b>.
+        </div>
+    </div>
+
+    <div class="insight critical">
+        <div class="insight-title">✗ Base de usuários subaproveitada</div>
+        <div class="insight-body">
+            <b>10 dos 18 usuários (56%) nunca foram adicionados a nenhum projeto</b>. Representa perda potencial de engajamento e uso.
+        </div>
+    </div>
+
+    <div class="page-footer">
+        <span>Gerado automaticamente</span>
+        <span>15 jul 2026</span>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 3 — USUÁRIOS ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 3 de 7</div>
+    </div>
+
+    <h3 class="section">Base de Usuários</h3>
+    <p class="lead">18 usuários registrados; apenas 8 estão participando ativamente de projetos.</p>
+
+    <div class="chart-container">
+        <h4>Distribuição de Usuários</h4>
+        <div class="chart-wrap short">
+            <canvas id="chartUsers"></canvas>
+        </div>
+    </div>
+
+    <h4>Ranking de Cadastros</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Nome</th>
+                <th>Email</th>
+                <th>Cadastro</th>
+                <th class="center">Projetos</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>1</td><td>Edmilson Praia</td><td>seen85739@gmail.com</td><td>03 jun</td><td class="center">2</td><td><span class="badge badge-admin">Ativo</span></td></tr>
+            <tr><td>2</td><td>Mauro Canhanga</td><td>maurocanhanga01@gmail.com</td><td>03 jun</td><td class="center">1</td><td><span class="badge badge-admin">Ativo</span></td></tr>
+            <tr><td>3</td><td>Jimi Vila</td><td>jim.vila2013@gmail.com</td><td>04 jun</td><td class="center">2</td><td><span class="badge badge-admin">Ativo</span></td></tr>
+            <tr><td>4</td><td>Ildo Mateus</td><td>ildomateus7@gmail.com</td><td>04 jun</td><td class="center">1</td><td><span class="badge badge-collab">Ativo</span></td></tr>
+            <tr><td>5</td><td>John Nhanga</td><td>johngaspardasilvanhanga123@gmail.com</td><td>05 jun</td><td class="center">1</td><td><span class="badge badge-collab">Ativo</span></td></tr>
+            <tr><td>6</td><td>Finda João Ngombo</td><td>joelmineiro243@gmail.com</td><td>05 jun</td><td class="center">1</td><td><span class="badge badge-collab">Ativo</span></td></tr>
+            <tr><td>7</td><td>Júlia da Silva</td><td>julia.silva8054@gmail.com</td><td>05 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>8</td><td>Tamires Afonso</td><td>afonsotamires7@gmail.com</td><td>05 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>9</td><td>Ruth Costa</td><td>r05vissolela@gmail.com</td><td>06 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>10</td><td>Tavares</td><td>tavareslukunga@gmail.com</td><td>06 jun</td><td class="center">1</td><td><span class="badge badge-collab">Ativo</span></td></tr>
+            <tr><td>11</td><td>Nginamau Joao</td><td>afonsonginamau844@gmail.com</td><td>07 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>12</td><td>Hélio</td><td>helioa.cazundo@hotmail.com</td><td>12 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>13</td><td>Catarina Benedito</td><td>c.benedito@hotmail.com</td><td>14 jun</td><td class="center">1</td><td><span class="badge badge-collab">Ativo</span></td></tr>
+            <tr><td>14</td><td>Mauro (Kokin)</td><td>maurokokin19@gmail.com</td><td>16 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>15</td><td>Mateus Lukombo</td><td>mateuslukombojoel@gmail.com</td><td>20 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>16</td><td>Grildo</td><td>grildofrancisco88@hotmail.com</td><td>25 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>17</td><td>Grildo Martins</td><td>grildomartins625@gmail.com</td><td>30 jun</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+            <tr><td>18</td><td>Miguel Fernando</td><td>geomiguel.fernando@hotmail.com</td><td>01 jul</td><td class="center">0</td><td><span class="badge badge-viewer">Órfão</span></td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-footer">
+        <span>Base de Usuários</span>
+        <span>15 jul 2026</span>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 4 — PROJETOS ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 4 de 7</div>
+    </div>
+
+    <h3 class="section">Projetos Ativos</h3>
+    <p class="lead">Distribuição de pontos e membros entre os dois projetos operacionais.</p>
+
+    <div class="chart-container">
+        <h4>Pontos e Fotos por Projeto</h4>
+        <div class="chart-wrap short">
+            <canvas id="chartProjects"></canvas>
+        </div>
+    </div>
+
+    <h4>Detalhamento por Projeto</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Projeto</th>
+                <th>Dono</th>
+                <th class="center">Membros</th>
+                <th class="center">Pontos</th>
+                <th class="center">Fotos</th>
+                <th>Última Atividade</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>Sondagem Geotécnica</b></td>
+                <td>Mauro Canhanga</td>
+                <td class="center">8</td>
+                <td class="num">118</td>
+                <td class="num">18</td>
+                <td>26 jun 2026</td>
+            </tr>
+            <tr>
+                <td><b>Meu Projeto</b></td>
+                <td>Edmilson Praia</td>
+                <td class="center">2</td>
+                <td class="num">113</td>
+                <td class="num">0</td>
+                <td>15 jul 2026</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h4>Composição da Equipa — Sondagem Geotécnica</h4>
+    <table>
+        <thead>
+            <tr><th>Membro</th><th>Papel</th><th>Entrou em</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Mauro Canhanga</td><td><span class="badge badge-admin">Admin (dono)</span></td><td>09 jun</td></tr>
+            <tr><td>Jimi Vila</td><td><span class="badge badge-admin">Admin</span></td><td>10 jun</td></tr>
+            <tr><td>Edmilson Praia</td><td><span class="badge badge-admin">Admin</span></td><td>10 jun</td></tr>
+            <tr><td>John Nhanga</td><td><span class="badge badge-collab">Colaborador</span></td><td>09 jun</td></tr>
+            <tr><td>Tavares</td><td><span class="badge badge-collab">Colaborador</span></td><td>09 jun</td></tr>
+            <tr><td>Ildo Mateus</td><td><span class="badge badge-collab">Colaborador</span></td><td>10 jun</td></tr>
+            <tr><td>Finda João Ngombo</td><td><span class="badge badge-collab">Colaborador</span></td><td>10 jun</td></tr>
+            <tr><td>Catarina Benedito</td><td><span class="badge badge-collab">Colaborador</span></td><td>14 jun</td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-footer">
+        <span>Projetos Ativos</span>
+        <span>15 jul 2026</span>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 5 — CONTRIBUIÇÃO ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 5 de 7</div>
+    </div>
+
+    <h3 class="section">Contribuição por Autor</h3>
+    <p class="lead">Ranking dos usuários que efetivamente coletaram pontos no sistema.</p>
+
+    <div class="chart-container">
+        <h4>Pontos Criados por Autor</h4>
+        <div class="chart-wrap tall">
+            <canvas id="chartAuthors"></canvas>
+        </div>
+    </div>
+
+    <h4>Ranking Detalhado</h4>
+    <table>
+        <thead>
+            <tr>
+                <th class="center">#</th>
+                <th>Autor</th>
+                <th>Projeto</th>
+                <th class="center">Pontos</th>
+                <th class="center">Fotos</th>
+                <th>Período</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="center"><b>1º</b></td>
+                <td><b>Edmilson Praia</b></td>
+                <td>Meu Projeto</td>
+                <td class="num">113</td>
+                <td class="num">0</td>
+                <td>15 jul (1 sessão)</td>
+            </tr>
+            <tr>
+                <td class="center"><b>2º</b></td>
+                <td><b>John Nhanga</b> ⭐</td>
+                <td>Sondagem Geotécnica</td>
+                <td class="num">107</td>
+                <td class="num">18</td>
+                <td>10–26 jun (16 dias)</td>
+            </tr>
+            <tr>
+                <td class="center"><b>3º</b></td>
+                <td>Mauro Canhanga</td>
+                <td>Sondagem Geotécnica</td>
+                <td class="num">10</td>
+                <td class="num">0</td>
+                <td>11 jun</td>
+            </tr>
+            <tr>
+                <td class="center"><b>4º</b></td>
+                <td>Jimi Vila</td>
+                <td>Sondagem Geotécnica</td>
+                <td class="num">1</td>
+                <td class="num">1</td>
+                <td>12 jun</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="insight success">
+        <div class="insight-title">⭐ Destaque: John Nhanga</div>
+        <div class="insight-body">
+            Único colaborador com <b>uso sustentado de campo</b> — 107 pontos coletados em 16 dias consecutivos, com <b>95% de todas as fotos do sistema</b> (18 de 19 imagens). Perfil de trabalhador operacional real, não de teste.
+        </div>
+    </div>
+
+    <div class="insight info">
+        <div class="insight-title">ℹ️ Contribuição concentrada</div>
+        <div class="insight-body">
+            <b>95% dos pontos operacionais</b> (Meu Projeto + Sondagem) vieram de apenas 2 usuários: Edmilson e John. Os outros 6 membros mal usaram a plataforma para coleta.
+        </div>
+    </div>
+
+    <div class="page-footer">
+        <span>Contribuição por Autor</span>
+        <span>15 jul 2026</span>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 6 — ATIVIDADES / DELEÇÕES ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 6 de 7</div>
+    </div>
+
+    <h3 class="section">Atividade Operacional</h3>
+    <p class="lead">Análise dos 742 eventos registrados nos últimos 30 dias.</p>
+
+    <div class="chart-container">
+        <h4>Distribuição por Tipo de Ação (30 dias)</h4>
+        <div class="chart-wrap short">
+            <canvas id="chartActions"></canvas>
+        </div>
+    </div>
+
+    <div class="insight critical">
+        <div class="insight-title">🔴 Alerta de Deleções: Mauro Canhanga</div>
+        <div class="insight-body">
+            <b>432 dos 439 eventos de deleção (98,4%)</b> foram executados por Mauro Canhanga, dono do projeto "Sondagem Geotécnica". Isto representa deleções massivas em ~16 dias.<br><br>
+            <b>Hipóteses:</b> limpeza de dados de teste, remoção de dados incorretos coletados por colaboradores, ou uso do rastreio automático seguido de limpeza. Recomenda-se validar com o próprio Mauro.
+        </div>
+    </div>
+
+    <h4>Autores das Deleções (30 dias)</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Autor</th>
+                <th class="center">Deleções</th>
+                <th class="center">% do Total</th>
+                <th>Observação</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>Mauro Canhanga</b></td>
+                <td class="num">432</td>
+                <td class="center">98,4%</td>
+                <td>Requer verificação — volume atípico</td>
+            </tr>
+            <tr>
+                <td>Edmilson Praia</td>
+                <td class="num">7</td>
+                <td class="center">1,6%</td>
+                <td>Nível normal de correção</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h4>Resumo dos Últimos 30 Dias</h4>
+    <table>
+        <thead>
+            <tr><th>Tipo de Ação</th><th class="center">Ocorrências</th><th>Comentário</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>point.delete</td><td class="num">439</td><td>Alto — investigar (ver acima)</td></tr>
+            <tr><td>point.create</td><td class="num">268</td><td>Fluxo normal de coleta</td></tr>
+            <tr><td>point.update</td><td class="num">34</td><td>Edições esporádicas — baixo</td></tr>
+            <tr><td>member.removed</td><td class="num">1</td><td>Turnover baixo</td></tr>
+            <tr><td><b>TOTAL</b></td><td class="num"><b>742</b></td><td></td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-footer">
+        <span>Atividade Operacional</span>
+        <span>15 jul 2026</span>
+    </div>
+</div>
+
+<!-- ============================ PÁGINA 7 — INSIGHTS + RECOMENDAÇÕES ============================ -->
+<div class="page">
+    <div class="page-header">
+        <div class="brand">CÓPIA COLECT · Relatório Executivo</div>
+        <div class="page-num">Página 7 de 7</div>
+    </div>
+
+    <h3 class="section">Insights & Recomendações</h3>
+    <p class="lead">Ações prioritárias baseadas nos dados analisados.</p>
+
+    <h4>Diagnóstico do Sistema</h4>
+
+    <div class="insight success">
+        <div class="insight-title">✓ Sistema funcional em produção</div>
+        <div class="insight-body">
+            A plataforma está sendo usada em <b>trabalho real de campo</b> — 107 pontos com foto em Sondagem Geotécnica, 30+ pontos em sessão de rastreio hoje em Meu Projeto. Fluxos offline-first, permissões, activity log e sync estão operacionais.
+        </div>
+    </div>
+
+    <div class="insight critical">
+        <div class="insight-title">✗ Base de usuários subaproveitada (56% órfãos)</div>
+        <div class="insight-body">
+            10 usuários registraram mas nunca foram adicionados a nenhum projeto: Miguel Fernando, Grildo Martins, Grildo, Mateus Lukombo, Mauro Kokin, Hélio, Nginamau Joao, Ruth Costa, Tamires Afonso, Júlia da Silva.
+        </div>
+    </div>
+
+    <div class="insight">
+        <div class="insight-title">⚠ Deleções concentradas em Mauro Canhanga (432 eventos)</div>
+        <div class="insight-body">
+            Comportamento atípico — requer conversa direta com o usuário para confirmar intenção (limpeza de teste vs. remoção de dados válidos).
+        </div>
+    </div>
+
+    <div class="insight info">
+        <div class="insight-title">ℹ️ Storage vazio — fotos como base64 no DB</div>
+        <div class="insight-body">
+            19 fotos ocupam ~4 MB dentro da tabela <code>points</code> (base64). Migração para Supabase Storage reduziria o peso das linhas em ~95% e permitiria thumbnails progressivas.
+        </div>
+    </div>
+
+    <h4>Recomendações Prioritárias</h4>
+    <ol class="recs">
+        <li><b>Auditar as 432 deleções de Mauro Canhanga</b> — determinar se foram intencionais (limpeza pós-teste) ou se houve remoção acidental de dados de colaboradores. Preservar a possibilidade de recuperação via activity_log.</li>
+        <li><b>Onboarding dos 10 usuários órfãos</b> — decidir individualmente: (a) convidar para projeto existente, (b) criar projeto próprio, ou (c) remover cadastros inativos há mais de 30 dias.</li>
+        <li><b>Migrar fotos para Supabase Storage</b> — reduzir peso do DB em ~95% e permitir compressão/thumbnails. Bucket <code>point-photos</code> já criado, falta o wiring de upload.</li>
+        <li><b>Testar importação de polígonos em produção</b> — 0 polígonos importados apesar da funcionalidade estar pronta (shapefile, GeoJSON, KML, KMZ). Fazer sessão prática com um dos admins usando dados reais reprojetados para WGS84.</li>
+        <li><b>Ativar galeria de fotos para colaboradores da Sondagem Geotécnica</b> — hoje só admins veem a galeria completa. Colaboradores como John Nhanga (autor de 95% das fotos) beneficiariam de acesso.</li>
+        <li><b>Habilitar relatórios periódicos automáticos</b> — enviar semanalmente para os admins um resumo similar a este (via PDF gerado pelo próprio app).</li>
+    </ol>
+
+    <h4>Métricas de Sucesso a Monitorar</h4>
+    <table>
+        <thead>
+            <tr><th>Métrica</th><th class="center">Atual</th><th class="center">Meta 30 dias</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Usuários ativos (com pontos no mês)</td><td class="center">2</td><td class="center">6+</td></tr>
+            <tr><td>Taxa de órfãos</td><td class="center">56%</td><td class="center">&lt; 20%</td></tr>
+            <tr><td>Pontos criados / semana</td><td class="center">~90</td><td class="center">200+</td></tr>
+            <tr><td>Fotos por ponto (média)</td><td class="center">8%</td><td class="center">30%+</td></tr>
+            <tr><td>Polígonos importados</td><td class="center">0</td><td class="center">5+</td></tr>
+        </tbody>
+    </table>
+
+    <div class="page-footer">
+        <span>Fim do Relatório · Cópia Colect · 15 jul 2026</span>
+        <span>Página 7 de 7</span>
+    </div>
+</div>
+
+<script>
+    // Chart.js — cores consistentes com o brand
+    const COLORS = {
+        primary: '#0e639c',
+        primaryLight: '#569cd6',
+        accent: '#4ec9b0',
+        warn: '#cc6633',
+        danger: '#c72e42',
+        yellow: '#dcdcaa',
+        gray: '#888',
+    };
+
+    Chart.defaults.font.family = "-apple-system, 'Segoe UI', Roboto, sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = '#333';
+
+    // === 1. Usuários (donut) ===
+    new Chart(document.getElementById('chartUsers'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Ativos em Projeto (8)', 'Órfãos - Sem Projeto (10)'],
+            datasets: [{
+                data: [8, 10],
+                backgroundColor: [COLORS.accent, COLORS.warn],
+                borderWidth: 2,
+                borderColor: '#fff',
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { padding: 12, boxWidth: 14 } },
+                tooltip: { callbacks: { label: (c) => `${c.label}: ${c.parsed} usuarios (${((c.parsed/18)*100).toFixed(0)}%)` } }
+            },
+        },
+    });
+
+    // === 2. Projetos (bar) ===
+    new Chart(document.getElementById('chartProjects'), {
+        type: 'bar',
+        data: {
+            labels: ['Sondagem Geotécnica', 'Meu Projeto'],
+            datasets: [
+                { label: 'Pontos', data: [118, 113], backgroundColor: COLORS.primary },
+                { label: 'Fotos',  data: [18, 0],   backgroundColor: COLORS.accent },
+                { label: 'Membros', data: [8, 2],   backgroundColor: COLORS.warn },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, grid: { color: '#eee' } }, x: { grid: { display: false } } },
+            plugins: { legend: { position: 'top', labels: { boxWidth: 14 } } },
+        },
+    });
+
+    // === 3. Contribuição (horizontal bar) ===
+    new Chart(document.getElementById('chartAuthors'), {
+        type: 'bar',
+        data: {
+            labels: ['Edmilson Praia', 'John Nhanga', 'Mauro Canhanga', 'Jimi Vila'],
+            datasets: [
+                { label: 'Pontos criados', data: [113, 107, 10, 1], backgroundColor: COLORS.primary },
+                { label: 'Fotos',           data: [0, 18, 0, 1],     backgroundColor: COLORS.accent },
+            ],
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            scales: { x: { beginAtZero: true, grid: { color: '#eee' } }, y: { grid: { display: false } } },
+            plugins: { legend: { position: 'top', labels: { boxWidth: 14 } } },
+        },
+    });
+
+    // === 4. Ações (donut) ===
+    new Chart(document.getElementById('chartActions'), {
+        type: 'doughnut',
+        data: {
+            labels: ['point.delete (439)', 'point.create (268)', 'point.update (34)', 'member.removed (1)'],
+            datasets: [{
+                data: [439, 268, 34, 1],
+                backgroundColor: [COLORS.danger, COLORS.accent, COLORS.primaryLight, COLORS.gray],
+                borderWidth: 2, borderColor: '#fff',
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { padding: 10, boxWidth: 14 } },
+                tooltip: { callbacks: { label: (c) => `${c.label}: ${((c.parsed/742)*100).toFixed(1)}%` } },
+            },
+        },
+    });
+</script>
+
+</body>
+</html>

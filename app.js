@@ -503,6 +503,15 @@ function createIcon(index, color) {
     });
 }
 
+function createTrajectoryIcon(color) {
+    const c = color || '#569cd6';
+    return L.divIcon({
+        className: 'trajectory-marker',
+        html: `<div style="background:${c};width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4)"></div>`,
+        iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+}
+
 const currentPosIcon = L.divIcon({
     className: 'current-pos-marker',
     html: '<div style="background:#0e639c;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 10px rgba(14,99,156,0.6)"></div>',
@@ -928,8 +937,10 @@ function renderMap() {
         const catStr = point.category ? `<br><span style="color:#888;font-size:11px">${point.category}</span>` : '';
         const draggable = canEditPoint(point);
         const dragHint = draggable ? `<br><small style="color:#4ec9b0;font-size:11px"><i>Arraste para mover</i></small>` : '';
+        const isTrajectoryPoint = point.category === 'trajeto';
+        const icon = isTrajectoryPoint ? createTrajectoryIcon(point.color) : createIcon(i, point.color);
         const marker = L.marker([point.lat, point.lng], {
-            icon: createIcon(i, point.color),
+            icon,
             draggable,
         }).bindPopup(
             `<b style="color:${point.color || '#4ec9b0'};font-size:14px">${labelText}</b>${catStr}<br>` +
@@ -1281,66 +1292,131 @@ function fitBounds() {
 // ============================================================
 // RASTREAMENTO
 // ============================================================
-function toggleTracking() {
-    if (state.tracking) {
-        navigator.geolocation.clearWatch(state.watchId);
-        state.tracking = false; state.watchId = null;
-        state.lastTrackLatLng = null;
-        btnTrack.innerHTML = '<i class="codicon codicon-record"></i><span>Rastreio</span>';
-        btnTrack.classList.remove('tracking');
-        if (typeof showToast === 'function') showToast('Rastreio parado.', 'info', 1800);
-    } else {
-        // Verificacoes de pre-condicoes
-        if (!navigator.geolocation) { alert('Geolocalizacao nao suportada.'); return; }
-        if (!state.project) {
-            alert('Selecione um projeto antes de iniciar o rastreio.');
-            return;
-        }
-        if (state.myRole === 'viewer') {
-            alert('Voce e visualizador neste projeto, nao pode rastrear pontos.');
-            return;
-        }
+// ===== Tracking preferences (persistidas) =====
+function loadTrackPrefs() {
+    try {
+        const raw = localStorage.getItem('cc-track-prefs');
+        if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    return { mode: 'points', interval: 10 };
+}
+function saveTrackPrefs(prefs) {
+    try { localStorage.setItem('cc-track-prefs', JSON.stringify(prefs)); } catch (_) {}
+}
 
-        state.tracking = true;
-        state.lastTrackLatLng = null;  // posicao do ultimo ponto registrado pelo rastreio
-        btnTrack.innerHTML = '<i class="codicon codicon-debug-stop"></i><span>Parar</span>';
-        btnTrack.classList.add('tracking');
-        if (typeof showToast === 'function') {
-            showToast('Rastreio iniciado. Caminhe para registrar o trajeto (1 ponto a cada 5 m).', 'success', 3500);
-        }
-        console.log('[cc] tracking iniciado, projeto:', state.project?.name, 'papel:', state.myRole);
+const trackConfigOverlay = $('track-config-overlay');
+const trackIntervalInput = $('track-interval');
+const trackStartBtn = $('track-start');
+const trackCancelBtn = $('track-cancel');
+const trackModeButtons = document.querySelectorAll('.track-mode-btn');
+const trackPresetButtons = document.querySelectorAll('.track-preset');
 
-        state.watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-                const { latitude, longitude, accuracy } = pos.coords;
-                updateCoordsDisplay(latitude, longitude);
+function setTrackModeUI(mode) {
+    trackModeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+}
+function setTrackPresetUI(interval) {
+    trackPresetButtons.forEach((b) => b.classList.toggle('active', +b.dataset.preset === interval));
+}
 
-                // Posicao atual (azul)
-                if (currentPosMarker) currentPosMarker.setLatLng([latitude, longitude]);
-                else currentPosMarker = L.marker([latitude, longitude], { icon: currentPosIcon }).addTo(map);
+trackModeButtons.forEach((b) => {
+    b.addEventListener('click', () => setTrackModeUI(b.dataset.mode));
+});
+trackPresetButtons.forEach((b) => {
+    b.addEventListener('click', () => {
+        const v = +b.dataset.preset;
+        trackIntervalInput.value = v;
+        setTrackPresetUI(v);
+    });
+});
+trackIntervalInput?.addEventListener('input', () => {
+    setTrackPresetUI(+trackIntervalInput.value);
+});
+trackCancelBtn?.addEventListener('click', () => trackConfigOverlay.classList.add('hidden'));
+trackConfigOverlay?.addEventListener('click', (e) => {
+    if (e.target === trackConfigOverlay) trackConfigOverlay.classList.add('hidden');
+});
 
-                // Decide se cria novo ponto baseado em distancia do ULTIMO ponto rastreado
-                // (nao usa state.points pra evitar race com addPoint async)
-                const last = state.lastTrackLatLng;
-                const distM = last ? haversine(last.lat, last.lng, latitude, longitude) : Infinity;
-                const moved = !last || distM >= 5;
+trackStartBtn?.addEventListener('click', () => {
+    const mode = document.querySelector('.track-mode-btn.active')?.dataset.mode || 'points';
+    const interval = Math.max(1, Math.min(1000, parseInt(trackIntervalInput.value, 10) || 10));
+    saveTrackPrefs({ mode, interval });
+    trackConfigOverlay.classList.add('hidden');
+    startTracking(mode, interval);
+});
 
-                if (moved) {
-                    // Marca ANTES de chamar addPoint pra proxima callback ver a nova posicao
-                    state.lastTrackLatLng = { lat: latitude, lng: longitude };
-                    console.log(`[cc] rastreio: ponto adicionado (acc=${accuracy?.toFixed(0)}m, mov=${last ? distM.toFixed(1) : '-'}m)`);
-                    addPoint(latitude, longitude, {});
-                    map.setView([latitude, longitude], Math.max(map.getZoom(), 16));
-                }
-            },
-            (err) => {
-                console.error('[cc] tracking GPS error', err);
-                alert(`Erro GPS no rastreio: ${err.message}\n\nVerifique se o GPS esta ligado e a permissao foi concedida.`);
-                toggleTracking();
-            },
-            { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
-        );
+function openTrackConfig() {
+    if (!navigator.geolocation) { alert('Geolocalizacao nao suportada.'); return; }
+    if (!state.project) { alert('Selecione um projeto antes de iniciar o rastreio.'); return; }
+    if (state.myRole === 'viewer') { alert('Voce e visualizador neste projeto, nao pode rastrear.'); return; }
+
+    const prefs = loadTrackPrefs();
+    setTrackModeUI(prefs.mode);
+    trackIntervalInput.value = prefs.interval;
+    setTrackPresetUI(prefs.interval);
+    trackConfigOverlay.classList.remove('hidden');
+}
+
+function stopTracking() {
+    if (!state.tracking) return;
+    if (state.watchId != null) navigator.geolocation.clearWatch(state.watchId);
+    state.tracking = false;
+    state.watchId = null;
+    state.lastTrackLatLng = null;
+    state.trackingMode = null;
+    btnTrack.innerHTML = '<i class="codicon codicon-record"></i><span>Rastreio</span>';
+    btnTrack.classList.remove('tracking');
+    if (typeof showToast === 'function') showToast('Rastreio parado.', 'info', 1800);
+}
+
+function startTracking(mode, interval) {
+    state.tracking = true;
+    state.trackingMode = mode;                    // 'points' | 'line'
+    state.trackingInterval = interval;             // metros
+    state.lastTrackLatLng = null;
+    btnTrack.innerHTML = '<i class="codicon codicon-debug-stop"></i><span>Parar</span>';
+    btnTrack.classList.add('tracking');
+    const modeLbl = mode === 'line' ? 'Trajeto' : 'Pontos';
+    if (typeof showToast === 'function') {
+        showToast(`Rastreio ${modeLbl} iniciado (1 ponto a cada ${interval}m).`, 'success', 3500);
     }
+    console.log(`[cc] tracking iniciado: modo=${mode}, intervalo=${interval}m, projeto=${state.project?.name}`);
+
+    state.watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            updateCoordsDisplay(latitude, longitude);
+
+            // Posicao atual (marker azul)
+            if (currentPosMarker) currentPosMarker.setLatLng([latitude, longitude]);
+            else currentPosMarker = L.marker([latitude, longitude], { icon: currentPosIcon }).addTo(map);
+
+            const last = state.lastTrackLatLng;
+            const distM = last ? haversine(last.lat, last.lng, latitude, longitude) : Infinity;
+            const moved = !last || distM >= state.trackingInterval;
+
+            if (moved) {
+                state.lastTrackLatLng = { lat: latitude, lng: longitude };
+                console.log(`[cc] rastreio ${state.trackingMode}: ponto (acc=${accuracy?.toFixed(0)}m, mov=${last ? distM.toFixed(1) : '-'}m, int=${state.trackingInterval}m)`);
+                // Marca com categoria para diferenciar no render (trajeto vs ponto)
+                addPoint(latitude, longitude, {
+                    category: state.trackingMode === 'line' ? 'trajeto' : '',
+                    color: state.trackingMode === 'line' ? '#569cd6' : '#4ec9b0',
+                });
+                map.setView([latitude, longitude], Math.max(map.getZoom(), 16));
+            }
+        },
+        (err) => {
+            console.error('[cc] tracking GPS error', err);
+            alert(`Erro GPS no rastreio: ${err.message}\n\nVerifique se o GPS esta ligado e a permissao foi concedida.`);
+            stopTracking();
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+    );
+}
+
+function toggleTracking() {
+    if (state.tracking) stopTracking();
+    else openTrackConfig();
 }
 
 // ============================================================

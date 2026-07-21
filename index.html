@@ -371,6 +371,54 @@
             </div>
         </div>
 
+        <!-- Track config modal (mode + interval) -->
+        <div id="track-config-overlay" class="modal-overlay hidden">
+            <div class="modal track-config-modal">
+                <div class="modal-header">
+                    <i class="codicon codicon-record"></i>
+                    <span>Configurar Rastreio</span>
+                </div>
+
+                <div class="track-field">
+                    <label>Modo</label>
+                    <div class="track-mode-buttons">
+                        <button type="button" class="track-mode-btn active" data-mode="points">
+                            <i class="codicon codicon-pin"></i>
+                            <span>Pontos</span>
+                            <small>Marcadores numerados</small>
+                        </button>
+                        <button type="button" class="track-mode-btn" data-mode="line">
+                            <i class="codicon codicon-triangle-right"></i>
+                            <span>Trajeto</span>
+                            <small>Linha contínua</small>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="track-field">
+                    <label>Intervalo mínimo entre pontos</label>
+                    <div class="track-interval-row">
+                        <input type="number" id="track-interval" class="modal-input" min="1" max="1000" value="10" step="1" />
+                        <span class="track-unit">metros</span>
+                    </div>
+                    <div class="track-presets">
+                        <button type="button" class="track-preset" data-preset="2">2m</button>
+                        <button type="button" class="track-preset" data-preset="5">5m</button>
+                        <button type="button" class="track-preset" data-preset="10">10m</button>
+                        <button type="button" class="track-preset" data-preset="25">25m</button>
+                        <button type="button" class="track-preset" data-preset="50">50m</button>
+                        <button type="button" class="track-preset" data-preset="100">100m</button>
+                    </div>
+                    <p class="track-hint">2-5m para detalhe fino · 25-100m para pontos esparsos</p>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="track-cancel" class="modal-btn cancel"><i class="codicon codicon-close"></i> Cancelar</button>
+                    <button id="track-start" class="modal-btn confirm"><i class="codicon codicon-record"></i> Iniciar</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Camera Measure modal -->
         <div id="cmeasure-overlay" class="modal-overlay hidden">
             <div class="modal cmeasure-modal">
