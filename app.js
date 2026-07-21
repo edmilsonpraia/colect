@@ -292,6 +292,12 @@ const state = {
     maxAccuracy: 10,          // metros - leituras piores que isto sao descartadas em Rastreio
     measureMode: false,
     measurePoints: [],
+    // Roteamento via OSRM (2 waypoints -> rota inteligente)
+    routing: false,
+    routeWaypoints: [],
+    routeLine: null,
+    routeMarkers: [],
+    routeProfile: 'foot',     // 'foot' | 'car' | 'bike'
 };
 
 function currentProjectName() {
@@ -1541,8 +1547,156 @@ function toggleMeasure() {
 btnMeasure.addEventListener('click', toggleMeasure);
 btnMeasureCancel.addEventListener('click', toggleMeasure);
 
+// ============================================================
+// ROTEAMENTO (OSRM - rota inteligente entre 2 pontos)
+// ============================================================
+const btnRoute = $('btn-route');
+const routeBar = $('route-bar');
+const routeStatus = $('route-status');
+const routeStatusIcon = $('route-status-icon');
+const routeBarStatus = routeBar?.querySelector('.route-bar-status');
+const routeClearBtn = $('route-clear');
+const routeCloseBtn = $('route-close');
+const routeProfileButtons = document.querySelectorAll('.route-profile');
+
+function setRouteStatus(text, opts = {}) {
+    if (routeStatus) routeStatus.textContent = text;
+    routeBar?.classList.toggle('calculating', !!opts.calculating);
+    routeBarStatus?.classList.toggle('summary', !!opts.summary);
+    if (routeStatusIcon) {
+        routeStatusIcon.className = `codicon ${opts.calculating ? 'codicon-loading' : opts.summary ? 'codicon-check' : 'codicon-git-fork-private'}`;
+    }
+}
+
+function clearRouteVisuals() {
+    if (state.routeLine) {
+        map.removeLayer(state.routeLine);
+        state.routeLine = null;
+    }
+    state.routeMarkers.forEach((m) => map.removeLayer(m));
+    state.routeMarkers = [];
+    state.routeWaypoints = [];
+}
+
+function stopRouting() {
+    state.routing = false;
+    clearRouteVisuals();
+    routeBar?.classList.add('hidden');
+    btnRoute?.classList.remove('active');
+    map.getContainer().style.cursor = '';
+}
+
+function startRouting() {
+    // Interrompe outros modos ativos
+    if (state.measureMode) toggleMeasure();
+    state.routing = true;
+    clearRouteVisuals();
+    routeBar?.classList.remove('hidden');
+    btnRoute?.classList.add('active');
+    map.getContainer().style.cursor = 'crosshair';
+    setRouteStatus('Clique no ponto de ORIGEM (A)');
+}
+
+function toggleRouting() {
+    if (state.routing) stopRouting();
+    else startRouting();
+}
+
+function makeWaypointIcon(letter, color) {
+    return L.divIcon({
+        className: 'route-waypoint-marker',
+        html: `<div style="background:${color};width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);position:relative"><span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(45deg)">${letter}</span></div>`,
+        iconSize: [30, 30], iconAnchor: [15, 30],
+    });
+}
+
+async function fetchRoute() {
+    if (state.routeWaypoints.length !== 2) return;
+    if (!navigator.onLine) {
+        if (typeof showToast === 'function') {
+            showToast('Rotas precisam de internet.', 'error', 3000);
+        }
+        setRouteStatus('Sem internet - rotas indisponiveis');
+        return;
+    }
+    setRouteStatus('Calculando rota...', { calculating: true });
+    // Remove linha antiga
+    if (state.routeLine) { map.removeLayer(state.routeLine); state.routeLine = null; }
+    try {
+        const [a, b] = state.routeWaypoints;
+        const url = `https://router.project-osrm.org/route/v1/${state.routeProfile}/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.code !== 'Ok' || !data.routes?.length) {
+            throw new Error(data.message || data.code || 'Sem rota encontrada');
+        }
+        const route = data.routes[0];
+        const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        state.routeLine = L.polyline(coords, {
+            color: '#0e639c',
+            weight: 5,
+            opacity: 0.85,
+        }).addTo(map);
+        // Ajusta mapa pra mostrar a rota inteira
+        map.fitBounds(state.routeLine.getBounds(), { padding: [40, 40] });
+        // Sumario
+        const distKm = route.distance / 1000;
+        const distStr = distKm < 1 ? `${Math.round(route.distance)} m` : `${distKm.toFixed(2)} km`;
+        const totalMin = Math.round(route.duration / 60);
+        const timeStr = totalMin < 60
+            ? `${totalMin} min`
+            : `${Math.floor(totalMin / 60)}h ${totalMin % 60}min`;
+        const profileLabel = { car: 'Carro', foot: 'A pe', bike: 'Bicicleta' }[state.routeProfile] || '';
+        setRouteStatus(`${distStr} · ${timeStr} · ${profileLabel}`, { summary: true });
+    } catch (err) {
+        console.error('[cc] route error', err);
+        setRouteStatus(`Erro: ${err.message}`);
+        if (typeof showToast === 'function') {
+            showToast('Erro ao calcular rota: ' + err.message, 'error', 4000);
+        }
+    }
+}
+
+function handleRouteClick(lat, lng) {
+    if (state.routeWaypoints.length >= 2) {
+        // Ja tem A e B - novo clique inicia nova rota (reset)
+        clearRouteVisuals();
+    }
+    state.routeWaypoints.push({ lat, lng });
+    const idx = state.routeWaypoints.length - 1;
+    const letter = idx === 0 ? 'A' : 'B';
+    const color = idx === 0 ? '#4ec9b0' : '#f44747';
+    const marker = L.marker([lat, lng], { icon: makeWaypointIcon(letter, color) }).addTo(map);
+    state.routeMarkers.push(marker);
+    if (state.routeWaypoints.length === 1) {
+        setRouteStatus('Clique no ponto de DESTINO (B)');
+    } else if (state.routeWaypoints.length === 2) {
+        fetchRoute();
+    }
+}
+
+btnRoute?.addEventListener('click', toggleRouting);
+routeCloseBtn?.addEventListener('click', stopRouting);
+routeClearBtn?.addEventListener('click', () => {
+    clearRouteVisuals();
+    setRouteStatus('Clique no ponto de ORIGEM (A)');
+});
+routeProfileButtons.forEach((b) => {
+    b.addEventListener('click', () => {
+        state.routeProfile = b.dataset.profile;
+        routeProfileButtons.forEach((x) => x.classList.toggle('active', x === b));
+        // Se ja tem A+B, recalcula com novo perfil
+        if (state.routeWaypoints.length === 2) fetchRoute();
+    });
+});
+
 map.on('click', (e) => {
     updateCoordsDisplay(e.latlng.lat, e.latlng.lng);
+
+    if (state.routing) {
+        handleRouteClick(e.latlng.lat, e.latlng.lng);
+        return;
+    }
 
     if (state.measureMode) {
         state.measurePoints.push(e.latlng);

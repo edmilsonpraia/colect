@@ -13,7 +13,7 @@
     <script>if(location.protocol!=='file:'){var l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);}</script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css" />
-    <link rel="stylesheet" href="style.css?v=20" />
+    <link rel="stylesheet" href="style.css?v=21" />
 </head>
 <body data-theme="dark">
     <!-- Offline banner (shown when navigator is offline) -->
@@ -64,6 +64,31 @@
             <div id="search-results" class="search-results hidden"></div>
         </div>
 
+        <!-- Route info bar (rota entre 2 pontos via OSRM) -->
+        <div id="route-bar" class="route-bar hidden">
+            <div class="route-bar-status">
+                <i id="route-status-icon" class="codicon codicon-git-fork-private"></i>
+                <span id="route-status">Clique no ponto de origem</span>
+            </div>
+            <div class="route-profiles">
+                <button class="route-profile active" data-profile="foot" title="A pe">
+                    <i class="codicon codicon-person"></i>
+                </button>
+                <button class="route-profile" data-profile="car" title="De carro">
+                    <i class="codicon codicon-rocket"></i>
+                </button>
+                <button class="route-profile" data-profile="bike" title="De bicicleta">
+                    <i class="codicon codicon-symbol-event"></i>
+                </button>
+            </div>
+            <button id="route-clear" class="btn-icon-sm" title="Nova rota">
+                <i class="codicon codicon-refresh"></i>
+            </button>
+            <button id="route-close" class="btn-icon-sm" title="Fechar">
+                <i class="codicon codicon-close"></i>
+            </button>
+        </div>
+
         <div id="map"></div>
 
         <!-- Measure info bar -->
@@ -95,6 +120,9 @@
                 </button>
                 <button id="btn-camera-measure" title="Medir tamanho real com camera">
                     <i class="codicon codicon-device-camera"></i><span>Medir Foto</span>
+                </button>
+                <button id="btn-route" title="Sugerir rota entre 2 pontos (a pe / carro / bicicleta)">
+                    <i class="codicon codicon-git-fork-private"></i><span>Rota</span>
                 </button>
             </div>
 
@@ -622,8 +650,8 @@
     <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
-    <script src="supabase-client.js?v=20"></script>
-    <script src="data-store.js?v=20"></script>
-    <script src="app.js?v=20"></script>
+    <script src="supabase-client.js?v=21"></script>
+    <script src="data-store.js?v=21"></script>
+    <script src="app.js?v=21"></script>
 </body>
 </html>

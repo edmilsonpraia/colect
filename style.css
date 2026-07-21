@@ -122,6 +122,95 @@ header h1 { font-size: 20px; color: var(--text2); font-weight: 400; letter-spaci
     color: #fff; padding: 6px 12px; border-radius: 3px; margin-bottom: 10px; font-size: 12px;
 }
 .measure-bar.hidden { display: none; }
+
+/* ============================================================
+   ROUTE BAR (rotas OSRM)
+   ============================================================ */
+.route-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text);
+    flex-wrap: wrap;
+}
+.route-bar.hidden { display: none; }
+.route-bar.calculating .route-bar-status .codicon {
+    animation: cc-spin 1s linear infinite;
+}
+.route-bar-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 180px;
+    color: var(--text2);
+}
+.route-bar-status .codicon {
+    color: var(--accent);
+    font-size: 15px;
+}
+#route-status { font-weight: 500; }
+.route-bar-status.summary {
+    color: var(--green);
+    font-family: 'Consolas', monospace;
+    font-weight: 600;
+}
+.route-profiles {
+    display: flex;
+    gap: 2px;
+    background: var(--bg3);
+    padding: 2px;
+    border-radius: 4px;
+}
+.route-profile {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.12s;
+    display: inline-flex;
+    align-items: center;
+}
+.route-profile:hover {
+    color: var(--text2);
+    background: var(--bg2);
+}
+.route-profile.active {
+    color: var(--accent);
+    background: var(--bg);
+    font-weight: 600;
+}
+.route-profile .codicon { font-size: 14px; }
+
+.route-bar #route-clear,
+.route-bar #route-close {
+    color: var(--text-dim);
+    padding: 4px 6px;
+}
+.route-bar #route-clear:hover { color: var(--blue); }
+.route-bar #route-close:hover { color: var(--red); }
+
+/* Marcadores A/B para waypoints da rota */
+.route-waypoint-marker { }
+.route-waypoint-marker > div {
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: bold; font-size: 14px;
+    border: 3px solid #fff;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+}
+
+@media (max-width: 500px) {
+    .route-bar-status { font-size: 11px; min-width: 140px; }
+    .route-profile { padding: 3px 6px; }
+}
 .measure-bar .codicon { font-size: 14px; }
 #measure-text { flex: 1; }
 
