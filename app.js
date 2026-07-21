@@ -333,8 +333,10 @@ const modalOverlay = $('modal-overlay'), inputLabel = $('input-label');
 const modalCoords = $('modal-coords'), modalCancel = $('modal-cancel'), modalConfirm = $('modal-confirm');
 const modalTitle = $('modal-title');
 const inputCategory = $('input-category'), colorPicker = $('color-picker');
-const photoInput = $('photo-input'), photoPreview = $('photo-preview');
-const btnTakePhoto = $('btn-take-photo'), btnRemovePhoto = $('btn-remove-photo');
+const photoInput = $('photo-input');
+const btnTakePhoto = $('btn-take-photo');
+const photosGrid = $('photos-grid');
+const photosCountLbl = $('photos-count-lbl');
 const projectSelect = $('project-select');
 const btnNewProject = $('btn-new-project'), btnRenameProject = $('btn-rename-project'), btnDeleteProject = $('btn-delete-project');
 const searchInput = $('search-input'), searchResults = $('search-results');
@@ -497,21 +499,23 @@ function updateCoordsDisplay(lat, lng) {
 // ============================================================
 // ICONES DO MAPA
 // ============================================================
+// Ponto: dot pequeno com numero. Ponto = ponto, nao pin.
 function createIcon(index, color) {
     const c = color || '#4ec9b0';
     return L.divIcon({
         className: 'custom-marker',
-        html: `<div style="background:${c};color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);text-shadow:0 1px 2px rgba(0,0,0,0.3)">${index + 1}</div>`,
-        iconSize: [24, 24], iconAnchor: [12, 12],
+        html: `<div style="background:${c};color:#fff;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:9px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.5)">${index + 1}</div>`,
+        iconSize: [16, 16], iconAnchor: [8, 8],
     });
 }
 
+// Marker minusculo (para trajeto - so pra click detection, quase invisivel)
 function createTrajectoryIcon(color) {
     const c = color || '#569cd6';
     return L.divIcon({
         className: 'trajectory-marker',
-        html: `<div style="background:${c};width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4)"></div>`,
-        iconSize: [14, 14], iconAnchor: [7, 7],
+        html: `<div style="background:${c};width:4px;height:4px;border-radius:50%;opacity:0.5"></div>`,
+        iconSize: [6, 6], iconAnchor: [3, 3],
     });
 }
 
@@ -613,11 +617,13 @@ function getLocation() {
 }
 
 // ============================================================
-// MODAL (legenda + cor + categoria + foto)
+// MODAL (legenda + cor + categoria + MULTI-FOTO)
 // ============================================================
 let pendingPoint = null;
-let currentPhoto = '';
+let currentPhotos = [];  // array de base64 strings
 let selectedColor = '#4ec9b0';
+
+const MAX_PHOTOS_PER_POINT = 10;
 
 colorPicker.addEventListener('click', (e) => {
     const dot = e.target.closest('.color-dot');
@@ -627,14 +633,48 @@ colorPicker.addEventListener('click', (e) => {
     selectedColor = dot.dataset.color;
 });
 
-btnTakePhoto.addEventListener('click', () => photoInput.click());
+function renderPhotosGrid() {
+    if (!photosGrid) return;
+    photosCountLbl.textContent = `(${currentPhotos.length})`;
+    if (currentPhotos.length === 0) {
+        photosGrid.innerHTML = '<div class="photos-empty">Nenhuma foto ainda</div>';
+        return;
+    }
+    photosGrid.innerHTML = '';
+    currentPhotos.forEach((src, i) => {
+        const item = document.createElement('div');
+        item.className = 'photo-thumb';
+        item.innerHTML = `
+            <img src="${src}" alt="foto ${i + 1}" />
+            <button class="photo-thumb-remove" title="Remover" type="button" data-i="${i}">
+                <i class="codicon codicon-close"></i>
+            </button>
+            <span class="photo-thumb-idx">${i + 1}</span>
+        `;
+        photosGrid.appendChild(item);
+    });
+    photosGrid.querySelectorAll('.photo-thumb-remove').forEach((b) => {
+        b.addEventListener('click', () => {
+            const idx = +b.dataset.i;
+            currentPhotos.splice(idx, 1);
+            renderPhotosGrid();
+        });
+    });
+}
+
+btnTakePhoto.addEventListener('click', () => {
+    if (currentPhotos.length >= MAX_PHOTOS_PER_POINT) {
+        alert(`Maximo ${MAX_PHOTOS_PER_POINT} fotos por ponto.`);
+        return;
+    }
+    photoInput.click();
+});
 
 photoInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-        // Resize to max 400px for storage
         const img = new Image();
         img.onload = () => {
             const max = 400;
@@ -646,10 +686,9 @@ photoInput.addEventListener('change', (e) => {
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-            currentPhoto = canvas.toDataURL('image/jpeg', 0.7);
-            photoPreview.src = currentPhoto;
-            photoPreview.classList.remove('hidden');
-            btnRemovePhoto.classList.remove('hidden');
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            currentPhotos.push(dataUrl);
+            renderPhotosGrid();
         };
         img.src = ev.target.result;
     };
@@ -657,18 +696,15 @@ photoInput.addEventListener('change', (e) => {
     e.target.value = '';
 });
 
-btnRemovePhoto.addEventListener('click', () => {
-    currentPhoto = '';
-    photoPreview.classList.add('hidden');
-    btnRemovePhoto.classList.add('hidden');
-});
-
 function openLabelModal(lat, lng, callback, editData) {
     pendingPoint = { lat, lng, callback };
     inputLabel.value = editData?.label || '';
     inputCategory.value = editData?.category || '';
     selectedColor = editData?.color || '#4ec9b0';
-    currentPhoto = editData?.photo || '';
+    // Aceita photos array OU photo string (legado)
+    currentPhotos = Array.isArray(editData?.photos)
+        ? [...editData.photos]
+        : (editData?.photo ? [editData.photo] : []);
     modalTitle.textContent = editData ? 'Editar Ponto' : 'Adicionar Ponto';
     modalCoords.textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
@@ -676,14 +712,7 @@ function openLabelModal(lat, lng, callback, editData) {
         d.classList.toggle('selected', d.dataset.color === selectedColor);
     });
 
-    if (currentPhoto) {
-        photoPreview.src = currentPhoto;
-        photoPreview.classList.remove('hidden');
-        btnRemovePhoto.classList.remove('hidden');
-    } else {
-        photoPreview.classList.add('hidden');
-        btnRemovePhoto.classList.add('hidden');
-    }
+    renderPhotosGrid();
 
     modalOverlay.classList.remove('hidden');
     setTimeout(() => inputLabel.focus(), 50);
@@ -703,7 +732,8 @@ modalConfirm.addEventListener('click', () => {
         label: inputLabel.value.trim(),
         category: inputCategory.value,
         color: selectedColor,
-        photo: currentPhoto,
+        photos: [...currentPhotos],
+        photo: currentPhotos[0] || '',   // compat
     });
     closeLabelModal();
 });
@@ -725,7 +755,8 @@ async function addPoint(lat, lng, meta) {
             label: meta?.label || '',
             category: meta?.category || '',
             color: meta?.color || '#4ec9b0',
-            photo: meta?.photo || '',
+            photos: Array.isArray(meta?.photos) ? meta.photos : (meta?.photo ? [meta.photo] : []),
+            photo: meta?.photo || (Array.isArray(meta?.photos) ? meta.photos[0] : '') || '',
         }, state.points.length);
         state.points.push(newPoint);
         renderAll();
@@ -936,7 +967,20 @@ function renderMap() {
         const labelText = point.label || `Ponto ${i + 1}`;
         const elev = elevationData[i];
         const elevStr = elev != null ? `<br><span style="color:#569cd6;font-size:12px">Elev: ${elev.toFixed(0)} m</span>` : '';
-        const photoStr = point.photo ? `<br><img src="${point.photo}" style="width:120px;border-radius:4px;margin-top:4px">` : '';
+        // Galeria de fotos (multi-foto): mostra ate 4 thumbnails + "+N" se houver mais
+        const photosArr = Array.isArray(point.photos) && point.photos.length ? point.photos : (point.photo ? [point.photo] : []);
+        let photoStr = '';
+        if (photosArr.length) {
+            const show = photosArr.slice(0, 4);
+            photoStr = `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:6px">`;
+            show.forEach((src) => {
+                photoStr += `<img src="${src}" style="width:70px;height:70px;object-fit:cover;border-radius:4px" />`;
+            });
+            if (photosArr.length > 4) {
+                photoStr += `<span style="align-self:center;color:#569cd6;font-size:11px;font-weight:600">+${photosArr.length - 4}</span>`;
+            }
+            photoStr += `</div>`;
+        }
         const catStr = point.category ? `<br><span style="color:#888;font-size:11px">${point.category}</span>` : '';
         const draggable = canEditPoint(point);
         const dragHint = draggable ? `<br><small style="color:#4ec9b0;font-size:11px"><i>Arraste para mover</i></small>` : '';
@@ -980,11 +1024,16 @@ function renderMap() {
     });
 
     if (state.points.length >= 2) {
-        pathLayer.addLayer(L.polyline(state.points.map((p) => [p.lat, p.lng]), {
-            color: '#4ec9b0', weight: 3, opacity: 0.8, dashArray: '8, 6',
-        }));
+        // Se HA pontos de trajeto -> linha SOLIDA azul (visualizacao de linha)
+        // Senao -> linha tracejada teal (conectando pontos discretos)
+        const hasTrajectory = state.points.some((p) => p.category === 'trajeto');
+        pathLayer.addLayer(L.polyline(state.points.map((p) => [p.lat, p.lng]), hasTrajectory
+            ? { color: '#569cd6', weight: 4, opacity: 0.9 }
+            : { color: '#4ec9b0', weight: 3, opacity: 0.8, dashArray: '8, 6' }
+        ));
     }
-    if (state.points.length >= 3) {
+    if (state.points.length >= 3 && !state.points.some((p) => p.category === 'trajeto')) {
+        // Poligono preenchido apenas quando NAO ha trajeto (senao vira mancha grande sem sentido)
         pathLayer.addLayer(L.polygon(state.points.map((p) => [p.lat, p.lng]), {
             color: '#4ec9b033', fillColor: '#4ec9b0', fillOpacity: 0.06, weight: 1, dashArray: '4, 4',
         }));

@@ -33,9 +33,6 @@
     function hasAuth() {
         return !!window.cc?.auth?.getUser?.();
     }
-    function currentUserId() {
-        return window.cc?.auth?.getUser?.()?.id || null;
-    }
 
     // ====== FILA DE OPERACOES PENDENTES ======
     function getPending() {
@@ -72,6 +69,9 @@
     // App espera campos: lat, lng, label, category, color, photo, timestamp
     // DB tem:           lat, lng, label, category, color, photo_url, created_at
     function dbToApp(p) {
+        // Prefere array photos; fallback para photo_url legado
+        const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : [];
+        if (!photos.length && p.photo_url) photos.push(p.photo_url);
         return {
             id: p.id,
             project_id: p.project_id,
@@ -81,7 +81,8 @@
             label: p.label || '',
             category: p.category || '',
             color: p.color || '#4ec9b0',
-            photo: p.photo_url || '',
+            photo: photos[0] || '',      // legado - primeira foto
+            photos,                       // NOVO - array completo
             position: p.position || 0,
             timestamp: p.created_at,
         };
@@ -218,6 +219,10 @@
         const user = window.cc.auth.getUser();
         if (!user) throw new Error('Nao autenticado');
         const id = uuid();
+        // Normaliza fotos: aceita `photos` (array) ou `photo` (string legada)
+        const photos = Array.isArray(point.photos)
+            ? point.photos.filter(Boolean)
+            : (point.photo ? [point.photo] : []);
         const localRow = {
             id,
             project_id: projectId,
@@ -227,7 +232,8 @@
             label: point.label || '',
             category: point.category || '',
             color: point.color || '#4ec9b0',
-            photo: point.photo || '',
+            photo: photos[0] || '',       // legado - primeira foto
+            photos,                        // NOVO - array
             position: position ?? 0,
             timestamp: new Date().toISOString(),
         };
@@ -240,7 +246,8 @@
             label: localRow.label,
             category: localRow.category,
             color: localRow.color,
-            photo_url: localRow.photo,
+            photo_url: localRow.photo,    // primeira foto (compat)
+            photos,                        // array completo
             position: localRow.position,
         };
 
@@ -272,6 +279,11 @@
         if ('category' in patch) dbPatch.category = patch.category;
         if ('color' in patch)    dbPatch.color = patch.color;
         if ('photo' in patch)    dbPatch.photo_url = patch.photo;
+        if ('photos' in patch) {
+            const arr = Array.isArray(patch.photos) ? patch.photos.filter(Boolean) : [];
+            dbPatch.photos = arr;
+            dbPatch.photo_url = arr[0] || '';   // manter compat
+        }
         if ('lat' in patch)      dbPatch.lat = patch.lat;
         if ('lng' in patch)      dbPatch.lng = patch.lng;
         if ('position' in patch) dbPatch.position = patch.position;
@@ -313,6 +325,7 @@
         const localRows = [];
         points.forEach((p, i) => {
             const id = uuid();
+            const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : (p.photo ? [p.photo] : []);
             const localRow = {
                 id,
                 project_id: projectId,
@@ -322,7 +335,8 @@
                 label: p.label || '',
                 category: p.category || '',
                 color: p.color || '#4ec9b0',
-                photo: p.photo || '',
+                photo: photos[0] || '',
+                photos,
                 position: startPosition + i,
                 timestamp: p.timestamp || new Date().toISOString(),
             };
@@ -332,6 +346,7 @@
                 lat: p.lat, lng: p.lng,
                 label: localRow.label, category: localRow.category,
                 color: localRow.color, photo_url: localRow.photo,
+                photos,
                 position: localRow.position,
             });
         });

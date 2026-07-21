@@ -13,7 +13,7 @@
     <script>if(location.protocol!=='file:'){var l=document.createElement('link');l.rel='manifest';l.href='manifest.json';document.head.appendChild(l);}</script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/@vscode/codicons@0.0.36/dist/codicon.css" />
-    <link rel="stylesheet" href="style.css?v=18" />
+    <link rel="stylesheet" href="style.css?v=19" />
 </head>
 <body data-theme="dark">
     <!-- Offline banner (shown when navigator is offline) -->
@@ -166,12 +166,14 @@
                     </div>
                 </div>
                 <div class="modal-field photo-field">
-                    <label><i class="codicon codicon-device-camera"></i> Foto</label>
-                    <div class="photo-area">
-                        <img id="photo-preview" class="photo-preview hidden" />
-                        <button id="btn-take-photo" class="modal-btn photo-btn" type="button"><i class="codicon codicon-device-camera"></i> Tirar Foto</button>
-                        <button id="btn-remove-photo" class="modal-btn photo-btn danger hidden" type="button"><i class="codicon codicon-trash"></i></button>
-                    </div>
+                    <label>
+                        <i class="codicon codicon-device-camera"></i> Fotos
+                        <span id="photos-count-lbl" class="photos-count-lbl">(0)</span>
+                    </label>
+                    <div id="photos-grid" class="photos-grid"></div>
+                    <button id="btn-take-photo" class="modal-btn photo-btn" type="button">
+                        <i class="codicon codicon-device-camera"></i> Adicionar Foto
+                    </button>
                     <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none" />
                 </div>
                 <div class="modal-coords" id="modal-coords"></div>
@@ -383,12 +385,12 @@
                     <label>Modo</label>
                     <div class="track-mode-buttons">
                         <button type="button" class="track-mode-btn active" data-mode="points">
-                            <i class="codicon codicon-pin"></i>
+                            <span class="mode-icon mode-icon-dot"></span>
                             <span>Pontos</span>
-                            <small>Marcadores numerados</small>
+                            <small>Bolinhas no mapa</small>
                         </button>
                         <button type="button" class="track-mode-btn" data-mode="line">
-                            <i class="codicon codicon-triangle-right"></i>
+                            <span class="mode-icon mode-icon-line"></span>
                             <span>Trajeto</span>
                             <small>Linha contínua</small>
                         </button>
@@ -602,8 +604,8 @@
     <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
-    <script src="supabase-client.js?v=18"></script>
-    <script src="data-store.js?v=18"></script>
-    <script src="app.js?v=18"></script>
+    <script src="supabase-client.js?v=19"></script>
+    <script src="data-store.js?v=19"></script>
+    <script src="app.js?v=19"></script>
 </body>
 </html>
