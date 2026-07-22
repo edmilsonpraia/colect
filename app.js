@@ -1464,43 +1464,118 @@ function openTrackConfig() {
     trackConfigOverlay.classList.remove('hidden');
 }
 
+// Camada dedicada para feedback visual EM TEMPO REAL do rastreio (independente do renderMap)
+let liveTrackLayer = null;         // L.LayerGroup - linha + marcadores da sessao ativa
+let liveTrackLine = null;          // L.polyline crescente
+let liveTrackDotsLayer = null;     // L.LayerGroup - pontos numerados em modo Pontos
+let accuracyCircle = null;         // L.circle mostrando raio de precisao GPS
+let trackingStats = { accepted: 0, discarded: 0, distanceM: 0, startTime: 0 };
+
+function updateTrackingBadge() {
+    if (!state.tracking) return;
+    const s = trackingStats;
+    const accStr = state.currentAccuracy != null ? `±${state.currentAccuracy.toFixed(0)}m` : '±--';
+    btnTrack.innerHTML = `<i class="codicon codicon-debug-stop"></i><span>Parar (${s.accepted} · ${accStr})</span>`;
+}
+
 function stopTracking() {
     if (!state.tracking) return;
     if (state.watchId != null) navigator.geolocation.clearWatch(state.watchId);
     state.tracking = false;
     state.watchId = null;
     state.lastTrackLatLng = null;
+    // Guarda o modo para o resumo antes de resetar
+    const finalStats = { ...trackingStats };
+    const finalMode = state.trackingMode;
     state.trackingMode = null;
     btnTrack.innerHTML = '<i class="codicon codicon-record"></i><span>Rastreio</span>';
     btnTrack.classList.remove('tracking');
-    if (typeof showToast === 'function') showToast('Rastreio parado.', 'info', 1800);
+    // Remove camada de accuracy circle
+    if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
+    // Mantem a linha ao vivo na tela ate proxima sessao
+    if (typeof showToast === 'function') {
+        const distStr = finalStats.distanceM >= 1000
+            ? `${(finalStats.distanceM / 1000).toFixed(2)} km`
+            : `${finalStats.distanceM.toFixed(0)} m`;
+        showToast(
+            `Rastreio parado. ${finalStats.accepted} ponto(s), ${distStr}, ${finalStats.discarded} leitura(s) descartada(s).`,
+            'info', 4500
+        );
+    }
+    console.log(`[cc] tracking parado. Total: ${finalStats.accepted} pontos, ${finalStats.distanceM.toFixed(0)}m, descartados: ${finalStats.discarded} (modo=${finalMode})`);
 }
 
 function startTracking(mode, interval) {
+    // Aviso pra configuracoes irrealistas: intervalo menor que precisao GPS quase sempre
+    // descarta tudo. Ex: intervalo 2m com filtro 10m = leituras tem 8m de erro por reading,
+    // dificil o filtro liberar > 1 vez.
+    if (state.maxAccuracy > interval * 2) {
+        const ok = confirm(
+            `Aviso: precisao GPS maxima (${state.maxAccuracy}m) e maior que 2x o intervalo (${interval}m).\n\n` +
+            `Isso pode causar pontos em posicao errada (jitter GPS).\n\n` +
+            `Sugestao: use intervalo >= ${state.maxAccuracy}m OU reduza a precisao maxima para ${Math.max(1, Math.floor(interval / 2))}m.\n\n` +
+            `Iniciar mesmo assim?`
+        );
+        if (!ok) return;
+    }
+
     state.tracking = true;
-    state.trackingMode = mode;                    // 'points' | 'line'
-    state.trackingInterval = interval;             // metros
+    state.trackingMode = mode;
+    state.trackingInterval = interval;
     state.lastTrackLatLng = null;
-    btnTrack.innerHTML = '<i class="codicon codicon-debug-stop"></i><span>Parar</span>';
+    trackingStats = { accepted: 0, discarded: 0, distanceM: 0, startTime: Date.now() };
+
+    // Cria camada dedicada pro feedback visual (nao interfere com renderMap)
+    if (liveTrackLayer) { map.removeLayer(liveTrackLayer); }
+    liveTrackLayer = L.layerGroup().addTo(map);
+    // Linha (usada em ambos os modos como conector visual)
+    liveTrackLine = L.polyline([], {
+        color: mode === 'line' ? '#569cd6' : '#4ec9b0',
+        weight: mode === 'line' ? 4 : 3,
+        opacity: 0.9,
+        dashArray: mode === 'line' ? null : '8, 6',
+    }).addTo(liveTrackLayer);
+    liveTrackDotsLayer = L.layerGroup().addTo(liveTrackLayer);
+
+    updateTrackingBadge();
     btnTrack.classList.add('tracking');
+
     const modeLbl = mode === 'line' ? 'Trajeto' : 'Pontos';
     if (typeof showToast === 'function') {
-        showToast(`Rastreio ${modeLbl} iniciado (1 ponto a cada ${interval}m).`, 'success', 3500);
+        showToast(`Rastreio ${modeLbl}: 1 ponto a cada ${interval}m, precisao max ${state.maxAccuracy}m.`, 'success', 3500);
     }
-    console.log(`[cc] tracking iniciado: modo=${mode}, intervalo=${interval}m, projeto=${state.project?.name}`);
+    console.log(`[cc] tracking iniciado: modo=${mode}, intervalo=${interval}m, maxAcc=${state.maxAccuracy}m, projeto=${state.project?.name}`);
 
     state.watchId = navigator.geolocation.watchPosition(
         (pos) => {
             const { latitude, longitude, accuracy } = pos.coords;
             updateCoordsDisplay(latitude, longitude, accuracy);
 
-            // Posicao atual (marker azul) - sempre atualiza mesmo se accuracy for baixa
+            // === POSICAO ATUAL (marker azul + CIRCULO DE PRECISAO) ===
+            // Circulo mostra visualmente quanto o GPS pode estar errado
+            if (!accuracyCircle) {
+                accuracyCircle = L.circle([latitude, longitude], {
+                    radius: accuracy || 20,
+                    color: '#0e639c', fillColor: '#0e639c',
+                    fillOpacity: 0.08, weight: 1, dashArray: '4,4',
+                }).addTo(map);
+            } else {
+                accuracyCircle.setLatLng([latitude, longitude]);
+                if (accuracy != null) accuracyCircle.setRadius(accuracy);
+            }
             if (currentPosMarker) currentPosMarker.setLatLng([latitude, longitude]);
             else currentPosMarker = L.marker([latitude, longitude], { icon: currentPosIcon }).addTo(map);
 
-            // FILTRO DE PRECISAO: descarta leituras piores que o limite (evita pontos em local errado)
-            if (accuracy != null && accuracy > state.maxAccuracy) {
-                console.log(`[cc] rastreio: leitura DESCARTADA (acc=${accuracy.toFixed(0)}m > limite ${state.maxAccuracy}m)`);
+            // === FILTRO DE PRECISAO ===
+            // EXCECAO: primeira leitura sempre aceite (bootstrap do rastreio) -
+            // senao o usuario pode ficar sem NADA se o GPS estiver ruim.
+            const isFirstReading = state.lastTrackLatLng == null;
+            const passesFilter = accuracy == null || accuracy <= state.maxAccuracy;
+
+            if (!isFirstReading && !passesFilter) {
+                trackingStats.discarded++;
+                updateTrackingBadge();
+                console.log(`[cc] rastreio: DESCARTADA (acc=${accuracy.toFixed(0)}m > ${state.maxAccuracy}m). Descartadas total: ${trackingStats.discarded}`);
                 return;
             }
 
@@ -1508,22 +1583,52 @@ function startTracking(mode, interval) {
             const distM = last ? haversine(last.lat, last.lng, latitude, longitude) : Infinity;
             const moved = !last || distM >= state.trackingInterval;
 
-            if (moved) {
-                state.lastTrackLatLng = { lat: latitude, lng: longitude };
-                console.log(`[cc] rastreio ${state.trackingMode}: ponto (acc=${accuracy?.toFixed(0)}m, mov=${last ? distM.toFixed(1) : '-'}m, int=${state.trackingInterval}m)`);
-                addPoint(latitude, longitude, {
-                    category: state.trackingMode === 'line' ? 'trajeto' : '',
-                    color: state.trackingMode === 'line' ? '#569cd6' : '#4ec9b0',
-                });
-                map.setView([latitude, longitude], Math.max(map.getZoom(), 16));
+            if (!moved) {
+                return;   // ainda perto do ultimo ponto, aguarda
             }
+
+            // Aceita este ponto: registra e desenha AO VIVO
+            state.lastTrackLatLng = { lat: latitude, lng: longitude };
+            trackingStats.accepted++;
+            if (isFinite(distM)) trackingStats.distanceM += distM;
+
+            // Feedback visual INSTANTANEO (nao espera Supabase)
+            liveTrackLine.addLatLng([latitude, longitude]);
+            if (mode === 'points') {
+                // Bolinha pequena numerada
+                const n = trackingStats.accepted;
+                const dot = L.marker([latitude, longitude], {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background:#4ec9b0;color:#fff;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:9px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.5)">${n}</div>`,
+                        iconSize: [16, 16], iconAnchor: [8, 8],
+                    }),
+                });
+                liveTrackDotsLayer.addLayer(dot);
+            }
+
+            updateTrackingBadge();
+
+            const bootstrapNote = isFirstReading && !passesFilter
+                ? ' [BOOTSTRAP - accuracy acima limite mas aceita]'
+                : '';
+            console.log(`[cc] rastreio ${mode}: PONTO #${trackingStats.accepted} (acc=${accuracy?.toFixed(1)}m, mov=${last ? distM.toFixed(1) : '-'}m, int=${interval}m)${bootstrapNote}`);
+
+            // Persistencia (async, nao bloqueia UI)
+            addPoint(latitude, longitude, {
+                category: mode === 'line' ? 'trajeto' : '',
+                color: mode === 'line' ? '#569cd6' : '#4ec9b0',
+            });
+
+            // Centralizar mapa (sem forcar zoom acima do atual)
+            map.panTo([latitude, longitude]);
         },
         (err) => {
             console.error('[cc] tracking GPS error', err);
             alert(`Erro GPS no rastreio: ${err.message}\n\nVerifique se o GPS esta ligado e a permissao foi concedida.`);
             stopTracking();
         },
-        { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
     );
 }
 
